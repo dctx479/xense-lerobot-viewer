@@ -100,6 +100,8 @@ export const zh: Record<MessageKey, string> = {
   "grid.allRobots": "全部机器人（{count}）",
   "grid.datasetCount_one": "{count} 个数据集",
   "grid.datasetCount_other": "{count} 个数据集",
+  "grid.reviewedEpisodes": "已检查 {count}",
+  "grid.reviewedEpisodesTitle": "有 {count} 个 Episode 存在质检记录",
   "grid.noMatch": "没有任务符合当前过滤条件。",
   "grid.sourceLabel": "来源",
   "grid.sourceAll": "全部",
@@ -473,6 +475,17 @@ export const zh: Record<MessageKey, string> = {
 
   // ── Subtask panel (Episodes tab) ────────────────────────────────────────
   "subtask.title": "子任务",
+  "autoAnn.title": "④ 自动标注",
+  "autoAnn.loading": "正在读取 TacFlow 标注…",
+  "autoAnn.none": "这个数据集没有 TacFlow 自动标注。",
+  "autoAnn.noEpisode": "标注报告里没有这条 episode。",
+  "autoAnn.unusable": "不可用",
+  "autoAnn.disclaimer":
+    "视觉模型对头显画面的解读 —— 是待核对的说法，不是真值。点步骤或问题可跳到对应时刻。",
+  "autoAnn.findings": "数据问题与操作失误",
+  "autoAnn.steps": "步骤",
+  "autoAnn.dataIssue": "数据问题",
+  "autoAnn.mistake": "操作失误",
   "subtask.unsaved": "未保存",
   "subtask.frameOf": "frame {current} / {last}",
   "subtask.highLevel": "总体指令",
