@@ -895,6 +895,8 @@ function TacCapReplaySlide({
         )}
         <UrdfVideoOverlay
           active
+          datasetKey={replay.datasetName}
+          episodeId={replay.episodeId}
           episodeTimeSeconds={episodeTimeSeconds}
           playing={!paused && replay.windowDurationSeconds > 0}
           replayRevision={0}

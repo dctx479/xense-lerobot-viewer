@@ -1,16 +1,14 @@
 import { NextRequest } from "next/server";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
+import { createBackgroundProcessResponse } from "@/lib/background-process-response";
 import { resolveLocalDatasetRoot } from "@/lib/local-datasets-discovery";
 import {
   normalizeHfEndpoint,
   resolveHfCatalogEndpoint,
   resolveHfSyncEndpoint,
 } from "@/lib/hf-endpoints";
-import {
-  resolveHfToken,
-  tokenForPython,
-} from "@/lib/hf-token-store";
+import { resolveHfToken, tokenForPython } from "@/lib/hf-token-store";
 import {
   activeDatasetWrite,
   beginDatasetWrite,
@@ -102,6 +100,9 @@ const SYNC_DISABLED_REASON =
 
 /** One sync at a time, process-wide: concurrent runs would write the same files. */
 let activeSync: { source: string; startedAt: number } | null = null;
+function currentSync() {
+  return activeSync;
+}
 
 type SyncResult = {
   org: string;
@@ -258,7 +259,7 @@ async function runToCompletion(
   });
 }
 
-/** Pipe the script's NDJSON straight through to the client as it arrives. */
+/** Confirmed syncs own their write lease until the child process exits. */
 function streamDownload(
   scriptFile: string,
   args: string[],
@@ -266,119 +267,16 @@ function streamDownload(
   endpoint: string,
   token: string | null,
   writeLease: DatasetWriteLease,
+  signal: AbortSignal,
 ): Response {
-  const encoder = new TextEncoder();
-  let streamCancelled = false;
-  let stopChild = () => {
-    streamCancelled = true;
-  };
-  return new Response(
-    new ReadableStream<Uint8Array>({
-      start(controller) {
-        let closed = false;
-        let child: ChildProcessWithoutNullStreams | null = null;
-        const terminateChild = () => {
-          streamCancelled = true;
-          if (!child || child.exitCode !== null || child.signalCode !== null)
-            return;
-          child.kill("SIGTERM");
-          const forceKill = setTimeout(() => {
-            if (child && child.exitCode === null && child.signalCode === null) {
-              child.kill("SIGKILL");
-            }
-          }, 2_000);
-          forceKill.unref();
-        };
-        stopChild = terminateChild;
-        const send = (obj: unknown) => {
-          if (closed) return;
-          try {
-            controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
-          } catch {
-            closed = true;
-          }
-        };
-        const close = () => {
-          finishDatasetWrite(writeLease);
-          activeSync = null;
-          if (closed) return;
-          closed = true;
-          try {
-            controller.close();
-          } catch {
-            /* already torn down */
-          }
-        };
-        if (streamCancelled) {
-          close();
-          return;
-        }
-        try {
-          child = spawnScript(scriptFile, pythonBin, args, endpoint, token);
-        } catch (err) {
-          send({ type: "error", error: `Failed to launch Python: ${err}` });
-          close();
-          return;
-        }
-
-        // The script reports its own failures as an error event and then exits
-        // non-zero. Track that, or the generic exit-code message below would
-        // land second and overwrite the diagnosis the user actually needs.
-        let sentError = false;
-
-        // The script emits one JSON object per line; hold a buffer because a
-        // chunk boundary can land mid-line.
-        let buffer = "";
-        const forward = (line: string) => {
-          if (!line.trim()) return;
-          try {
-            const event = JSON.parse(line);
-            if (event?.type === "error") sentError = true;
-            send(event);
-          } catch {
-            /* ignore an unparseable line rather than killing the stream */
-          }
-        };
-        child.stdout.on("data", (chunk) => {
-          buffer += chunk.toString();
-          const lines = buffer.split(/\r?\n/);
-          buffer = lines.pop() ?? "";
-          for (const line of lines) forward(line);
-        });
-
-        let stderr = "";
-        child.stderr.on("data", (d) => (stderr += d.toString()));
-
-        child.on("error", (err) => {
-          send({ type: "error", error: `Python failed: ${err.message}` });
-          close();
-        });
-
-        child.on("close", (code) => {
-          forward(buffer);
-          // Only synthesise an error when the script died without explaining
-          // itself — a crash or a kill. Otherwise its own message stands.
-          if (code !== 0 && !sentError) {
-            send({
-              type: "error",
-              error:
-                stderr.trim().split(/\r?\n/).pop() ||
-                `Sync exited with code ${code} and no output.`,
-            });
-          }
-          close();
-        });
-      },
-      cancel() {
-        stopChild();
-      },
-    }),
-    {
-      headers: {
-        "content-type": "application/x-ndjson; charset=utf-8",
-        "cache-control": "no-store, no-transform",
-      },
+  const lease = activeSync;
+  return createBackgroundProcessResponse(
+    () => spawnScript(scriptFile, pythonBin, args, endpoint, token),
+    () => {
+      finishDatasetWrite(writeLease);
+      if (activeSync === lease) activeSync = null;
     },
+    signal,
   );
 }
 
@@ -526,6 +424,14 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
+    if (request.signal.aborted) return new Response(null, { status: 499 });
+    const running = currentSync();
+    if (running) {
+      return Response.json(
+        { error: "A sync of " + running.source + " is already running." },
+        { status: 409 },
+      );
+    }
     const writeLease = beginDatasetWrite(
       "metadata-sync",
       target.label,
@@ -545,6 +451,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       endpoint,
       token,
       writeLease,
+      request.signal,
     );
   }
 
@@ -592,6 +499,14 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
+  if (request.signal.aborted) return new Response(null, { status: 499 });
+  const running = currentSync();
+  if (running) {
+    return Response.json(
+      { error: "A sync of " + running.source + " is already running." },
+      { status: 409 },
+    );
+  }
   const writeLease = beginDatasetWrite("metadata-sync", target.label, writeKey);
   if (!writeLease) {
     return Response.json(
@@ -604,8 +519,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     syncScriptPath(),
     body.force === true ? [...baseArgs, "--force"] : baseArgs,
     python.bin,
-    HF_SYNC_ENDPOINT,
+    endpoint,
     token,
     writeLease,
+    request.signal,
   );
 }
