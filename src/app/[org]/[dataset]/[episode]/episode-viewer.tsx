@@ -38,6 +38,7 @@ import {
 } from "@/context/episode-reviews-context";
 import EpisodeReviewPanel from "@/components/episode-review-panel";
 import { AutoAnnotationPanel } from "@/components/auto-annotation-panel";
+import { useEpisodeStayTime } from "@/hooks/use-episode-stay-time";
 import Sidebar from "@/components/side-nav";
 import EpisodeListLoading from "@/components/episode-list-loading";
 import LanguageSwitcher from "@/components/language-switcher";
@@ -464,7 +465,19 @@ function EpisodeViewerInner({
     task,
   } = data;
 
-  const [videosReady, setVideosReady] = useState(!videosInfo.length);
+  const [videosReadyEpisodeId, setVideosReadyEpisodeId] = useState<
+    number | null
+  >(videosInfo.length ? null : episodeId);
+  const videosReady = videosReadyEpisodeId === episodeId;
+  const [videoFrameReadyEpisodeId, setVideoFrameReadyEpisodeId] = useState<
+    number | null
+  >(videosInfo.length ? null : episodeId);
+  const videoFrameReady =
+    videosInfo.length === 0 || videoFrameReadyEpisodeId === episodeId;
+  const [urdfReady, setUrdfReady] = useState<{
+    episodeId: number;
+    ready: boolean;
+  }>({ episodeId: -1, ready: false });
   const [chartsReady, setChartsReady] = useState(false);
   const [chartEpisodeId, setChartEpisodeId] = useState<number | null>(null);
   const repoId = org && dataset ? repoIdFromRouteParams(org, dataset) : null;
@@ -558,6 +571,27 @@ function EpisodeViewerInner({
   const [, startEpisodeTransition] = useTransition();
   const episodeTransitioning =
     episodeLoading || selectedEpisodeId !== episodeId;
+  const {
+    file: reviewFile,
+    reviewer,
+    loaded: reviewLoaded,
+  } = useEpisodeReviewData();
+  const episodeStay = useEpisodeStayTime({
+    datasetKey: datasetInfo.repoId,
+    episodeId,
+    reviewer,
+    durationSeconds: data.duration,
+    enabled:
+      !episodeTransitioning && !episodeError && reviewLoaded && !!reviewer,
+    reviewSurfaceReady:
+      activeTab === "episodes"
+        ? videosInfo.length > 0
+          ? videoFrameReady
+          : chartEpisodeId === episodeId && chartsReady
+        : activeTab === "urdf" &&
+          urdfReady.episodeId === episodeId &&
+          urdfReady.ready,
+  });
   // The full-page layer only guards the data transition. Media decoding and
   // Recharts rendering have their own local placeholders, so they no longer
   // hold the entire episode shell behind LOADING.
@@ -593,7 +627,8 @@ function EpisodeViewerInner({
       window.cancelAnimationFrame(chartReadyFrameRef.current);
       chartReadyFrameRef.current = null;
     }
-    setVideosReady(!videosInfo.length);
+    setVideosReadyEpisodeId(videosInfo.length ? null : episodeId);
+    setVideoFrameReadyEpisodeId(videosInfo.length ? null : episodeId);
     setChartsReady(false);
     setChartEpisodeId(null);
   }, [episodeId, videosInfo.length]);
@@ -845,7 +880,7 @@ function EpisodeViewerInner({
   // useState — they don't drive renders.
   const { seek, setIsPlaying } = useTimeControls();
   const handleVideosReady = useCallback(() => {
-    setVideosReady(true);
+    setVideosReadyEpisodeId(episodeId);
     logSwitchTiming(
       switchTimingRef.current,
       "videosLogged",
@@ -853,6 +888,18 @@ function EpisodeViewerInner({
       "videos decoded",
     );
   }, [episodeId]);
+  const handleVisibleVideoFrameReady = useCallback(
+    (ready: boolean) => {
+      setVideoFrameReadyEpisodeId(ready ? episodeId : null);
+    },
+    [episodeId],
+  );
+  const handleUrdfReadyChange = useCallback(
+    (readyEpisodeId: number, ready: boolean) => {
+      setUrdfReady({ episodeId: readyEpisodeId, ready });
+    },
+    [],
+  );
   const handleChartsReady = useCallback(() => {
     // Commit readiness immediately: the two frames below exist only to make
     // the *measurement* honest, and gating the state update behind them would
@@ -939,7 +986,6 @@ function EpisodeViewerInner({
     if (activeTab === "urdf") setUrdfMounted(true);
   }, [activeTab]);
 
-  const { file: reviewFile, reviewer } = useEpisodeReviewData();
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
   const reviewFilteredEpisodes = useMemo(
     () =>
@@ -1195,6 +1241,8 @@ function EpisodeViewerInner({
                   episodeId={episodeId}
                   source={activeTab === "urdf" ? "urdf" : "episodes"}
                   disabled={episodeTransitioning || !!episodeError}
+                  episodeDurationMs={episodeStay.episodeDurationMs}
+                  readStayMs={episodeStay.readStayMs}
                 />
               ) : null
             }
@@ -1323,6 +1371,7 @@ function EpisodeViewerInner({
                   episodeId={episodeId}
                   loading={playerLoading}
                   onVideosReady={handleVideosReady}
+                  onVisibleVideoFrameReady={handleVisibleVideoFrameReady}
                 />
               )}
 
@@ -1410,6 +1459,7 @@ function EpisodeViewerInner({
                       episodeId={episodeId}
                       loading={playerLoading}
                       onVideosReady={handleVideosReady}
+                      onVisibleVideoFrameReady={handleVisibleVideoFrameReady}
                       annotationOverlay
                     />
                   </div>
@@ -1589,6 +1639,7 @@ function EpisodeViewerInner({
                 <URDFViewer
                   key={datasetInfo.repoId}
                   data={data}
+                  onReadyChange={handleUrdfReadyChange}
                   active={
                     activeTab === "urdf" && !episodeLoading && !episodeError
                   }
