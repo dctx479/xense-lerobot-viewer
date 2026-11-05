@@ -347,6 +347,102 @@ test("a foreign atomic owner is preserved even when its path looks valid", async
   expect(await fs.readlink(target + ".lock")).toBe(path.basename(other));
 });
 
+test("reaps complete unreferenced v1/v2 owner directories before publishing", async () => {
+  await fs.writeFile(target + ".write-lock", "");
+  const ino = (
+    await fs.stat(target + ".write-lock", { bigint: true })
+  ).ino.toString();
+  const v1Token = crypto.randomUUID();
+  const v2Token = crypto.randomUUID();
+  for (const [protocol, token, suffix] of [
+    ["xense-review-flock-v1", v1Token, ".retired-"],
+    ["xense-review-flock-v2", v2Token, ".owner-"],
+  ] as const) {
+    const ownerDirectory = target + ".lock" + suffix + token;
+    await fs.mkdir(ownerDirectory);
+    await fs.writeFile(
+      path.join(ownerDirectory, "owner.json"),
+      JSON.stringify({ protocol, ino, token }),
+    );
+  }
+  const lock = await acquireReviewWriteLock(target);
+  try {
+    expect(await fs.exists(target + ".lock.retired-" + v1Token)).toBe(false);
+    expect(await fs.exists(target + ".lock.owner-" + v2Token)).toBe(false);
+    await lock.assertHeld();
+  } finally {
+    await lock.release();
+  }
+});
+
+test("reaps empty staging directories but preserves malformed or foreign entries", async () => {
+  await fs.writeFile(target + ".write-lock", "");
+  const empty = target + ".lock.owner-" + crypto.randomUUID();
+  const malformed = target + ".lock.owner-" + crypto.randomUUID();
+  const foreign = target + ".lock.owner-" + crypto.randomUUID();
+  const extra = target + ".lock.retired-" + crypto.randomUUID();
+  const link = target + ".lock.owner-" + crypto.randomUUID();
+  await fs.mkdir(empty);
+  await fs.mkdir(malformed);
+  await fs.writeFile(path.join(malformed, "owner.json"), "not json");
+  await fs.mkdir(foreign);
+  await fs.writeFile(
+    path.join(foreign, "owner.json"),
+    JSON.stringify({
+      protocol: "xense-review-flock-v2",
+      ino: "foreign-inode",
+      token: path
+        .basename(foreign)
+        .slice((path.basename(target + ".lock") + ".owner-").length),
+    }),
+  );
+  await fs.mkdir(extra);
+  await fs.writeFile(path.join(extra, "keep"), "data");
+  await fs.symlink(empty, link);
+  const lock = await acquireReviewWriteLock(target);
+  try {
+    expect(await fs.exists(empty)).toBe(false);
+    expect(await fs.exists(malformed)).toBe(true);
+    expect(await fs.exists(foreign)).toBe(true);
+    expect(await fs.exists(extra)).toBe(true);
+    expect((await fs.lstat(link)).isSymbolicLink()).toBe(true);
+  } finally {
+    await lock.release();
+  }
+});
+
+test("reaper failures do not prevent a new writer from acquiring the lock", async () => {
+  await fs.writeFile(target + ".write-lock", "");
+  const ino = (
+    await fs.stat(target + ".write-lock", { bigint: true })
+  ).ino.toString();
+  const token = crypto.randomUUID();
+  const orphan = target + ".lock.owner-" + token;
+  await fs.mkdir(orphan);
+  const ownerPath = path.join(orphan, "owner.json");
+  await fs.writeFile(
+    ownerPath,
+    JSON.stringify({ protocol: "xense-review-flock-v2", ino, token }),
+  );
+  const unlink = fs.unlink.bind(fs);
+  const reaping = spyOn(fs, "unlink").mockImplementation(async (entry) => {
+    if (String(entry) === ownerPath)
+      throw Object.assign(new Error("Injected cleanup failure"), {
+        code: "EIO",
+      });
+    return unlink(entry);
+  });
+  let lock: Awaited<ReturnType<typeof acquireReviewWriteLock>> | undefined;
+  try {
+    lock = await acquireReviewWriteLock(target);
+    await lock.assertHeld();
+  } finally {
+    reaping.mockRestore();
+    await lock?.release();
+  }
+  expect(await fs.exists(orphan)).toBe(true);
+});
+
 test("a replaced owner directory cannot redirect lock cleanup outside its scope", async () => {
   const lock = await acquireReviewWriteLock(target);
   const linkTarget = await fs.readlink(target + ".lock");

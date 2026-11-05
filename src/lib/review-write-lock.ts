@@ -7,6 +7,8 @@ import { randomUUID } from "node:crypto";
 const PROTOCOL = "xense-review-flock-v1";
 const ATOMIC_PROTOCOL = "xense-review-flock-v2";
 const OWNER = "owner.json";
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export class ReviewWriteLockError extends Error {
   constructor(
@@ -172,6 +174,91 @@ export async function acquireReviewWriteLock(
     }
   }
 
+  // A killed process can leave a staged or retired sibling after the native
+  // lease has been released. Only a complete marker (or an empty marker whose
+  // owner was never published) with this lock's inode is safe to reap.
+  async function reapOrphanDirectories() {
+    let entries;
+    try {
+      entries = await fs.readdir(path.dirname(directory), {
+        withFileTypes: true,
+      });
+    } catch {
+      return;
+    }
+    const base = path.basename(directory);
+    for (const entry of entries) {
+      const prefix = entry.name.startsWith(base + ".owner-")
+        ? base + ".owner-"
+        : entry.name.startsWith(base + ".retired-")
+          ? base + ".retired-"
+          : undefined;
+      if (!prefix) continue;
+      const token = entry.name.slice(prefix.length);
+      if (!UUID_PATTERN.test(token)) continue;
+      const candidate = path.join(path.dirname(directory), entry.name);
+      try {
+        const stat = await fs.lstat(candidate, { bigint: true });
+        if (!stat.isDirectory() || stat.isSymbolicLink()) continue;
+        const names = await fs.readdir(candidate);
+        if (names.length === 0) {
+          const current = await fs.lstat(candidate, { bigint: true });
+          if (
+            !current.isDirectory() ||
+            current.isSymbolicLink() ||
+            current.ino !== stat.ino ||
+            current.dev !== stat.dev
+          )
+            continue;
+          await fs.rmdir(candidate);
+          continue;
+        }
+        if (names.length !== 1 || names[0] !== OWNER) continue;
+        const ownerPath = path.join(candidate, OWNER);
+        const ownerStat = await fs.lstat(ownerPath, { bigint: true });
+        if (!ownerStat.isFile() || ownerStat.isSymbolicLink()) continue;
+        const owner = await readOwner(ownerPath);
+        if (
+          !owner ||
+          ![PROTOCOL, ATOMIC_PROTOCOL].includes(owner.protocol) ||
+          owner.ino !== native.ino ||
+          owner.token !== token
+        )
+          continue;
+        const current = await fs.lstat(candidate, { bigint: true });
+        if (
+          !current.isDirectory() ||
+          current.isSymbolicLink() ||
+          current.ino !== stat.ino ||
+          current.dev !== stat.dev
+        )
+          continue;
+        const currentOwner = await fs.lstat(ownerPath, { bigint: true });
+        if (
+          !currentOwner.isFile() ||
+          currentOwner.isSymbolicLink() ||
+          currentOwner.ino !== ownerStat.ino ||
+          currentOwner.dev !== ownerStat.dev
+        )
+          continue;
+        if (prefix === base + ".owner-") {
+          const visible = await fs
+            .readlink(directory)
+            .catch((error: NodeJS.ErrnoException) => {
+              if (error.code === "ENOENT") return undefined;
+              throw error;
+            });
+          if (visible === entry.name) await fs.unlink(directory);
+        }
+        await fs.unlink(ownerPath);
+        await fs.rmdir(candidate);
+      } catch {
+        // Cleanup is opportunistic. A malformed, concurrently changed, or
+        // temporarily inaccessible orphan must never make the lock unusable.
+      }
+    }
+  }
+
   async function ownedLink() {
     try {
       const stat = await fs.lstat(directory);
@@ -249,6 +336,7 @@ export async function acquireReviewWriteLock(
 
   try {
     await native.verifyHeld();
+    await reapOrphanDirectories();
     await fs.mkdir(stagedDirectory, { mode: 0o775 });
     staged = true;
     const stagedStat = await fs.lstat(stagedDirectory, { bigint: true });

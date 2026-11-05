@@ -237,9 +237,13 @@ one atomic operation before cleaning its owner directory; a crash before or afte
 publication/removal leaves either no lock name or a complete, recoverable marker.
 A lost publication acknowledgement retains the marker instead of deleting its
 owner. A recognized v1 orphan is atomically renamed away before cleanup, so its
-upgrade cannot strand an empty directory either. Unreferenced staging/retired
-directories may remain after a crash; they do not block saves and are not swept
-automatically. Commit checks verify the native inode and owner token/protocol/inode.
+upgrade cannot strand an empty directory either. After acquiring the native
+lease, a writer opportunistically reaps unreferenced staging/retired directories
+whose UUID, owner protocol, token and native inode match; empty staging
+directories from the pre-owner crash window are also removed. Unknown contents,
+symlinked directories, malformed owners and foreign inode identities are
+preserved, and cleanup failures do not block a save. Commit checks verify the
+native inode and owner token/protocol/inode.
 These checks detect observed ownership changes; they cannot fence noncooperating
 writers or guarantee behavior through a network partition. Waiting on legacy locks
 uses a monotonic clock, so a wall clock adjustment cannot extend the deadline.
