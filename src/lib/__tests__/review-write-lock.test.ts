@@ -61,6 +61,16 @@ test("a replaced native lock inode prevents the original writer from committing"
   }
 });
 
+test("a symlink cannot redirect the persistent native lock file", async () => {
+  const outside = path.join(directory, "outside-lock");
+  await fs.writeFile(outside, "preserve");
+  await fs.symlink(outside, target + ".write-lock");
+  await expect(acquireReviewWriteLock(target)).rejects.toMatchObject({
+    status: 400,
+  });
+  expect(await fs.readFile(outside, "utf8")).toBe("preserve");
+});
+
 test("a replaced owner token prevents commit and cannot be removed by the old owner", async () => {
   const lock = await acquireReviewWriteLock(target);
   const ownerPath = path.join(target + ".lock", "owner.json");
@@ -109,9 +119,6 @@ test("owner publication failures leave no compatibility lock and allow recovery"
   }
   expect(failure).toMatchObject({ code: "ENOSPC" });
   expect(await fs.exists(target + ".lock")).toBe(false);
-  expect(
-    (await fs.readdir(directory)).filter((name) => name.includes(".owner-")),
-  ).toEqual([]);
   const lock = await acquireReviewWriteLock(target);
   await lock.release();
 });
@@ -173,9 +180,8 @@ test("partial staged owner writes cannot publish an incomplete compatibility loc
     writing.mockRestore();
   }
   expect(await fs.exists(target + ".lock")).toBe(false);
-  expect(
-    (await fs.readdir(directory)).filter((name) => name.includes(".owner-")),
-  ).toEqual([]);
+  const retry = await acquireReviewWriteLock(target);
+  await retry.release();
 });
 
 test("owner publication never overwrites or removes an unexpected existing owner", async () => {
@@ -293,6 +299,43 @@ test("a lost publication acknowledgement preserves a complete recoverable owner"
   expect(await fs.readdir(directory)).toEqual([
     "episode-reviews.json.write-lock",
   ]);
+});
+
+test("failed publication never deletes an owner file replaced by a symlink", async () => {
+  const outside = path.join(directory, "outside-owner");
+  await fs.writeFile(outside, "preserve");
+  const symlink = fs.symlink.bind(fs);
+  const publishing = spyOn(fs, "symlink").mockImplementation(
+    async (source, destination) => {
+      const owner = path.join(
+        path.dirname(String(destination)),
+        String(source),
+        "owner.json",
+      );
+      await fs.unlink(owner);
+      await symlink(outside, owner);
+      throw Object.assign(new Error("Injected publication failure"), {
+        code: "ENOSPC",
+      });
+    },
+  );
+  try {
+    await expect(acquireReviewWriteLock(target)).rejects.toMatchObject({
+      code: "ENOSPC",
+    });
+  } finally {
+    publishing.mockRestore();
+  }
+  expect(await fs.readFile(outside, "utf8")).toBe("preserve");
+  const owners = (await fs.readdir(directory)).filter((entry) =>
+    entry.includes(".lock.owner-"),
+  );
+  expect(owners).toHaveLength(1);
+  expect(
+    (
+      await fs.lstat(path.join(directory, owners[0], "owner.json"))
+    ).isSymbolicLink(),
+  ).toBe(true);
 });
 
 test("a failed v1 orphan cleanup cannot leave an empty compatibility directory", async () => {

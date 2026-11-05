@@ -22,20 +22,30 @@ export class ReviewWriteLockError extends Error {
 
 /** Persistent inode: never unlink this file, even when no process holds it. */
 async function nativeLease(file: string, timeoutMs: number) {
-  let fixMode = true;
+  let identity;
   try {
-    const stat = await fs.lstat(file);
-    if (!stat.isFile() || stat.isSymbolicLink())
-      throw new ReviewWriteLockError("Invalid system review lock file", 400);
-    fixMode = (stat.mode & 0o777) !== 0o664;
+    const handle = await fs.open(
+      file,
+      fs.constants.O_CREAT | fs.constants.O_RDWR | fs.constants.O_NOFOLLOW,
+      0o664,
+    );
+    try {
+      identity = await handle.stat({ bigint: true });
+      if (!identity.isFile())
+        throw new ReviewWriteLockError("Invalid system review lock file", 400);
+      // A cooperating server may have a stricter umask and a different UID.
+      if ((identity.mode & BigInt(0o777)) !== BigInt(0o664))
+        await handle.chmod(0o664);
+    } finally {
+      await handle.close();
+    }
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (
+      ["ELOOP", "EISDIR"].includes((error as NodeJS.ErrnoException).code ?? "")
+    )
+      throw new ReviewWriteLockError("Invalid system review lock file", 400);
+    throw error;
   }
-  const handle = await fs.open(file, "a", 0o664);
-  // A cooperating server may have a stricter umask and a different UID.
-  if (fixMode) await handle.chmod(0o664);
-  const identity = await handle.stat({ bigint: true });
-  await handle.close();
   // --no-fork leaves one tiny shell waiting on stdin. Parent exit closes the
   // pipe and releases the kernel lock; there is no timestamp-based takeover.
   const child = spawn(
@@ -157,20 +167,32 @@ export async function acquireReviewWriteLock(
   let staged = false;
   let published = false;
   let stagedIdentity: { ino: bigint; dev: bigint } | undefined;
+  let stagedOwnerIdentity: { ino: bigint; dev: bigint } | undefined;
 
   async function readOwner(ownerPath: string) {
+    let handle;
     try {
-      const stat = await fs.lstat(ownerPath);
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4096)
-        return undefined;
-      return JSON.parse(await fs.readFile(ownerPath, "utf8"));
+      handle = await fs.open(
+        ownerPath,
+        fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+      );
+      const stat = await handle.stat({ bigint: true });
+      if (!stat.isFile() || stat.size > 4096) return undefined;
+      const content = await handle.readFile("utf8");
+      const after = await handle.stat({ bigint: true });
+      if (after.ino !== stat.ino || after.dev !== stat.dev) return undefined;
+      return JSON.parse(content);
     } catch (error) {
       if (
         error instanceof SyntaxError ||
-        (error as NodeJS.ErrnoException).code === "ENOENT"
+        ["ENOENT", "ELOOP"].includes(
+          (error as NodeJS.ErrnoException).code ?? "",
+        )
       )
         return undefined;
       throw error;
+    } finally {
+      await handle?.close();
     }
   }
 
@@ -287,7 +309,7 @@ export async function acquireReviewWriteLock(
     }
   }
 
-  async function removeStaged(strict = true) {
+  async function removeStaged() {
     if (!staged) return;
     const directoryStat = await fs.lstat(stagedDirectory, { bigint: true });
     if (
@@ -302,26 +324,24 @@ export async function acquireReviewWriteLock(
         "REVIEW_LOCK_CHANGED",
       );
     const ownerStat = await fs
-      .lstat(stagedOwner)
+      .lstat(stagedOwner, { bigint: true })
       .catch((error: NodeJS.ErrnoException) => {
         if (error.code === "ENOENT") return undefined;
         throw error;
       });
     if (ownerStat) {
       const owner = await readOwner(stagedOwner);
+      const isOurs =
+        ownerStat.isFile() &&
+        !ownerStat.isSymbolicLink() &&
+        ownerStat.ino === stagedOwnerIdentity?.ino &&
+        ownerStat.dev === stagedOwnerIdentity.dev;
       if (
-        !ownerStat.isFile() ||
-        ownerStat.isSymbolicLink() ||
+        !isOurs ||
         owner?.protocol !== ATOMIC_PROTOCOL ||
         owner.token !== token ||
         owner.ino !== native.ino
       ) {
-        if (!strict) {
-          await fs.unlink(stagedOwner);
-          await fs.rmdir(stagedDirectory);
-          staged = false;
-          return;
-        }
         throw new ReviewWriteLockError(
           "Review owner changed; recovery is required",
           503,
@@ -350,6 +370,13 @@ export async function acquireReviewWriteLock(
       }),
       { flag: "wx", mode: 0o664 },
     );
+    const stagedOwnerStat = await fs.lstat(stagedOwner, { bigint: true });
+    if (!stagedOwnerStat.isFile() || stagedOwnerStat.isSymbolicLink())
+      throw new ReviewWriteLockError("Invalid review owner file", 400);
+    stagedOwnerIdentity = {
+      ino: stagedOwnerStat.ino,
+      dev: stagedOwnerStat.dev,
+    };
     // Cooperating servers may use different UIDs/umasks on the shared mount.
     await fs.chmod(stagedOwner, 0o664);
     await fs.chmod(stagedDirectory, 0o2775);
@@ -444,7 +471,7 @@ export async function acquireReviewWriteLock(
     // complete marker; the next lease holder can recover it safely.
     if (!published) {
       const own = await ownedLink().catch(() => undefined);
-      if (own === false) await removeStaged(false).catch(() => undefined);
+      if (own === false) await removeStaged().catch(() => undefined);
     }
     await native.release();
     throw error;
