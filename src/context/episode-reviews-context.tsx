@@ -390,6 +390,7 @@ function useReviewState(repoId: string, browsePath: string) {
 
   return {
     file,
+    browsePath,
     reviewers,
     profiles,
     storagePath,
@@ -417,6 +418,7 @@ type ReviewState = ReturnType<typeof useReviewState>;
 type ReviewData = Pick<
   ReviewState,
   | "file"
+  | "browsePath"
   | "reviewers"
   | "profiles"
   | "storagePath"
@@ -449,6 +451,7 @@ function EpisodeReviewScope({ repoId, browsePath, children }: ProviderProps) {
   const value = useReviewState(repoId, browsePath);
   const {
     file,
+    browsePath: selectedBrowsePath,
     reviewers,
     profiles,
     storagePath,
@@ -458,8 +461,26 @@ function EpisodeReviewScope({ repoId, browsePath, children }: ProviderProps) {
     ...actions
   } = value;
   const data = useMemo(
-    () => ({ file, reviewers, profiles, storagePath, reviewer, loaded, error }),
-    [file, reviewers, profiles, storagePath, reviewer, loaded, error],
+    () => ({
+      file,
+      browsePath: selectedBrowsePath,
+      reviewers,
+      profiles,
+      storagePath,
+      reviewer,
+      loaded,
+      error,
+    }),
+    [
+      file,
+      selectedBrowsePath,
+      reviewers,
+      profiles,
+      storagePath,
+      reviewer,
+      loaded,
+      error,
+    ],
   );
   return (
     <ReviewDataContext.Provider value={data}>

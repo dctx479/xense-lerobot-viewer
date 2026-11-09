@@ -359,6 +359,7 @@ describe("review write deadline and reconciliation", () => {
     for (const [code, key] of [
       ["REVIEW_LOCK_BUSY", "review.lockBusy"],
       ["REVIEW_LEGACY_LOCK", "review.legacyLock"],
+      ["REVIEW_LOCK_DANGLING", "review.lockDangling"],
       ["REVIEW_LOCK_UNAVAILABLE", "review.lockUnavailable"],
     ] as const) {
       let writes = 0;

@@ -1,3 +1,4 @@
+import { calendarTimestamp } from "@/utils/calendarTime";
 /**
  * Naming for trashed datasets. Pure — the filesystem side lives in
  * `src/lib/local-dataset-trash.ts`.
@@ -19,11 +20,10 @@ export type TrashEntry = {
 
 /** Timestamp prefix: sortable, filesystem-safe, second resolution. */
 export function trashStamp(when: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return (
-    `${when.getUTCFullYear()}${pad(when.getUTCMonth() + 1)}${pad(when.getUTCDate())}` +
-    `-${pad(when.getUTCHours())}${pad(when.getUTCMinutes())}${pad(when.getUTCSeconds())}`
-  );
+  return calendarTimestamp(when)
+    .slice(0, 19)
+    .replace(/[-:]/gu, "")
+    .replace("T", "-");
 }
 
 const MAX_SLUG = 80;

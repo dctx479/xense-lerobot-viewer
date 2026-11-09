@@ -10,6 +10,7 @@
 
 import type { LocalDatasetSummary } from "@/lib/local-datasets-discovery";
 import { CAPTURE_CUTOFF, type CorpusBucket } from "@/lib/dataset-facets";
+import { calendarDaySpanOverlaps } from "@/utils/calendarTime";
 
 /** `all`, one bucket, or `none` for datasets outside the bucketed layout. */
 export type BucketFilter = "all" | CorpusBucket | "none";
@@ -26,7 +27,7 @@ export type DateMode = "all" | "range" | "unknown";
 
 export type DateFilter = {
   mode: DateMode;
-  /** Inclusive `YYYY-MM-DD` bounds. Empty string means "open on this side". */
+  /** UTC+8 midnight bounds [from, to). Empty string means "open on this side". */
   from: string;
   to: string;
 };
@@ -79,9 +80,10 @@ export function matchesDate(
   if (dateEvidence === "none" || capturedFrom === null || capturedTo === null) {
     return false;
   }
-  if (filter.from && capturedTo < filter.from) return false;
-  if (filter.to && capturedFrom > filter.to) return false;
-  return true;
+  return calendarDaySpanOverlaps(capturedFrom, capturedTo, {
+    startDate: filter.from,
+    endDate: filter.to,
+  });
 }
 
 export function matchesAnomalyOnly(

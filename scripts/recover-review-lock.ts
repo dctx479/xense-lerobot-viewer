@@ -4,12 +4,24 @@ import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 import { reviewTimestamp } from "../src/utils/reviewTime";
 import { readReviewCollection } from "../src/lib/episode-reviews-store";
-import { recoverLegacyReviewLock } from "../src/lib/review-write-lock";
+import {
+  recoverDanglingReviewLock,
+  recoverLegacyReviewLock,
+} from "../src/lib/review-write-lock";
 
-const [browsePath, confirmation] = process.argv.slice(2);
-if (!browsePath || confirmation !== "--no-legacy-writers") {
+const [browsePath, ...flags] = process.argv.slice(2);
+const dangling = flags.includes("--dangling");
+const required = dangling ? "--no-writers" : "--no-legacy-writers";
+const eventPrefix = dangling ? "dangling_lock" : "empty_lock";
+if (
+  !browsePath ||
+  !flags.includes(required) ||
+  flags.some(
+    (flag) => ![required, ...(dangling ? ["--dangling"] : [])].includes(flag),
+  )
+) {
   console.error(
-    "First pause saves on ALL old-version viewer servers and wait for in-flight writes to finish. Browsing may continue. Then run: bun scripts/recover-review-lock.ts <browse-directory> --no-legacy-writers",
+    "Pause the relevant writers on ALL hosts and wait for in-flight writes to finish. Browsing may continue. Empty legacy directory: bun scripts/recover-review-lock.ts <browse-directory> --no-legacy-writers. Dangling owner link (ALL writers paused): bun scripts/recover-review-lock.ts <browse-directory> --dangling --no-writers",
   );
   process.exitCode = 1;
 } else {
@@ -38,29 +50,43 @@ if (!browsePath || confirmation !== "--no-legacy-writers") {
       auditPath,
       JSON.stringify({
         at: reviewTimestamp(),
-        event: "empty_lock_recovery_requested",
+        event: eventPrefix + "_recovery_requested",
         host: hostname(),
         pid: process.pid,
       }) + "\n",
       { flag: "wx", mode: 0o664 },
     );
     await fs.chmod(auditPath, 0o664);
-    const backup = await recoverLegacyReviewLock(
-      path.join(root, ".xense-viewer", "episode-reviews.json"),
-    );
+    const target = path.join(root, ".xense-viewer", "episode-reviews.json");
+    const result = dangling
+      ? await recoverDanglingReviewLock(target)
+      : {
+          backup: await recoverLegacyReviewLock(target),
+          quarantine: undefined,
+        };
+    const { backup, quarantine } = result;
     await fs.appendFile(
       auditPath,
       JSON.stringify({
         at: reviewTimestamp(),
-        event: "empty_lock_recovered",
+        event: eventPrefix + "_recovered",
         backup: backup ? path.basename(backup) : null,
+        ...(quarantine ? { quarantine: path.basename(quarantine) } : {}),
       }) + "\n",
     );
-    console.log(
-      backup
-        ? "Empty legacy lock recovered. Records backed up to: " + backup
-        : "Empty legacy lock recovered. No review file existed; no review file or backup was created.",
-    );
+    if (dangling) {
+      console.log("Dangling lock quarantined: " + quarantine);
+      console.log(
+        backup
+          ? "Records backed up to: " + backup
+          : "No review file existed; no review file or backup was created.",
+      );
+    } else
+      console.log(
+        backup
+          ? "Empty legacy lock recovered. Records backed up to: " + backup
+          : "Empty legacy lock recovered. No review file existed; no review file or backup was created.",
+      );
     console.log(
       "Existing records and unfinished temporary files were not changed. Retry the manual mark in the viewer.",
     );
@@ -71,7 +97,7 @@ if (!browsePath || confirmation !== "--no-legacy-writers") {
           auditPath,
           JSON.stringify({
             at: reviewTimestamp(),
-            event: "empty_lock_recovery_failed",
+            event: eventPrefix + "_recovery_failed",
             error_code:
               (error as NodeJS.ErrnoException).code ?? "RECOVERY_FAILED",
           }) + "\n",

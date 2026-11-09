@@ -1,3 +1,4 @@
+import { tryCalendarDayKey } from "@/utils/calendarTime";
 /**
  * The filesystem half of the browsing facets — server-only.
  *
@@ -31,9 +32,7 @@ async function readJson(file: string): Promise<unknown> {
 }
 
 function isoDay(value: unknown): string | null {
-  return typeof value === "string" && value.length >= 10
-    ? value.slice(0, 10)
-    : null;
+  return typeof value === "string" ? tryCalendarDayKey(value) : null;
 }
 
 function span(days: string[]): { from: string; to: string } | null {

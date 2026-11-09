@@ -1,3 +1,5 @@
+import type { AutoAnnotationDatasetSummary } from "@/types/auto-annotation.types";
+import { calendarDayKey } from "@/utils/calendarTime";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -21,6 +23,7 @@ import {
   createDatasetSizeResolver,
   type DatasetSizeResolver,
 } from "@/lib/dataset-size-cache";
+import type { DatasetQualityTask } from "@/utils/datasetQualityChecks";
 
 export type { DatasetTags } from "@/lib/dataset-tags";
 
@@ -44,11 +47,32 @@ type LocalDatasetInfoJson = {
   robot_type?: string | null;
   total_episodes?: number;
   total_frames?: number;
+  total_tasks?: number;
   fps?: number;
   chunks_size?: number;
   data_path?: string;
   video_path?: string;
   features?: Record<string, FeatureInfo>;
+};
+
+type LocalDatasetHardwareUnit = {
+  side?: unknown;
+  gripper_sn?: unknown;
+  robot_id?: unknown;
+  [key: string]: unknown;
+};
+
+type LocalDatasetHardwareEpoch = {
+  units?: LocalDatasetHardwareUnit[];
+  robot_id?: unknown;
+  [key: string]: unknown;
+};
+
+type LocalDatasetHardwareJson = {
+  robot_id?: unknown;
+  units?: LocalDatasetHardwareUnit[];
+  epochs?: LocalDatasetHardwareEpoch[];
+  [key: string]: unknown;
 };
 
 export type LocalDatasetSummary = {
@@ -63,20 +87,37 @@ export type LocalDatasetSummary = {
   encodedPath: string;
   codebase_version: string;
   robot_type: string | null;
+  /** Unique collector serial from `meta/xumi_collection_devices.json`. */
+  collectorSerialNumber?: string | null;
+  robotId: string | null;
+  leftGripperSn: string | null;
   total_episodes: number;
   total_frames: number;
+  total_tasks?: number;
   fps: number;
+  /** Internal presence flags; non-enumerable and omitted from API payloads. */
+  localInfoFields?: ReadonlySet<
+    "robot_type" | "total_episodes" | "total_frames" | "total_tasks" | "fps"
+  >;
   /** Bytes on disk for the whole dataset directory. See `directorySizeBytes`. */
   sizeBytes: number;
   thumbnailVideoUrl: string | null;
   integrity: DatasetIntegrity;
   tags: DatasetTags;
+  /** Prompt rows loaded by Workbench statistics routes, not homepage discovery. */
+  tasks?: DatasetQualityTask[];
   /**
    * Derived browsing facets — bucket, capture dates, shape anomaly. Computed
    * here rather than on the detail page so the homepage can filter the list
    * without opening 542 datasets a second time. See `dataset-facets.ts`.
    */
   facets: DatasetFacets;
+  /**
+   * TacFlow's ④ automatic annotation summary, read from the corpus registry beside the dataset
+   * (`src/lib/auto-annotations.ts`). Attached by the homepage after discovery — the scanner itself never reads it —
+   * so it is absent on any other `discoverLocalDatasets` caller, and null when the dataset has none.
+   */
+  annotation?: AutoAnnotationDatasetSummary | null;
 };
 
 /**
@@ -138,14 +179,27 @@ export function serializeLocalDatasetSummaryForClient(
     encodedPath: dataset.encodedPath,
     codebase_version: dataset.codebase_version,
     robot_type: dataset.robot_type,
+    collectorSerialNumber: dataset.collectorSerialNumber ?? null,
+    robotId: dataset.robotId,
+    leftGripperSn: dataset.leftGripperSn,
     total_episodes: dataset.total_episodes,
     total_frames: dataset.total_frames,
+    total_tasks: dataset.total_tasks,
     fps: dataset.fps,
     sizeBytes: dataset.sizeBytes,
     thumbnailVideoUrl: dataset.thumbnailVideoUrl,
     integrity: { ...dataset.integrity },
-    tags: { ...dataset.tags, objects: [...dataset.tags.objects] },
+    tags: {
+      ...dataset.tags,
+      objects: [...dataset.tags.objects],
+    },
+    ...(dataset.tasks
+      ? { tasks: dataset.tasks.map((task) => ({ ...task })) }
+      : {}),
     facets: { ...dataset.facets },
+    ...(dataset.annotation !== undefined
+      ? { annotation: dataset.annotation }
+      : {}),
   };
 }
 
@@ -157,7 +211,7 @@ export function serializeLocalDatasetsResponseForClient(
     browsePath: response.browsePath,
     locations: [...response.locations],
     datasets: response.datasets.map(serializeLocalDatasetSummaryForClient),
-    interrupted: response.interrupted.map((conversion) => ({ ...conversion })),
+    interrupted: response.interrupted.map((entry) => ({ ...entry })),
     errors: response.errors.map((error) => ({ ...error })),
   };
 }
@@ -180,16 +234,11 @@ const CHECKPOINT_FILE = ["meta", ".checkpoint.json"] as const;
 const CHECKPOINT_VERSION = 1;
 
 /**
- * The day as the machine's clock reads it, not UTC.
- *
- * An mtime is an instant, so unlike a `recorded_at` string off disk there is no
- * "as written" form to preserve; the day someone means by "when did this stop"
- * is their own. `isoDay` in `dataset-facets-server.ts` slices a string for the
- * opposite reason — there the timezone is already in the data.
+ * The project UTC+8 day of a filesystem instant, using the same conversion as
+ * capture timestamps and review records rather than the machine timezone.
  */
 function localDay(when: Date): string {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}`;
+  return calendarDayKey(when);
 }
 
 /**
@@ -244,6 +293,212 @@ async function readDatasetTags(datasetDir: string): Promise<DatasetTags> {
     return normalizeTags(JSON.parse(raw));
   } catch {
     return { ...EMPTY_TAGS };
+  }
+}
+
+function cleanString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function extractRobotId(input: unknown): string | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const parsed = input as LocalDatasetHardwareJson;
+  const topLevel = cleanString(parsed.robot_id);
+  if (topLevel) return topLevel;
+
+  const topLevelUnits = Array.isArray(parsed.units) ? parsed.units : [];
+  for (const unit of topLevelUnits) {
+    if (!unit || typeof unit !== "object") continue;
+    const nested = cleanString((unit as LocalDatasetHardwareUnit).robot_id);
+    if (nested) return nested;
+  }
+
+  const epochs = Array.isArray(parsed.epochs) ? parsed.epochs : [];
+  for (let index = epochs.length - 1; index >= 0; index -= 1) {
+    const epoch = epochs[index];
+    if (!epoch || typeof epoch !== "object") continue;
+    const candidate = epoch as LocalDatasetHardwareEpoch;
+    const value = cleanString(candidate.robot_id);
+    if (value) return value;
+    const units = Array.isArray(candidate.units) ? candidate.units : [];
+    for (const unit of units) {
+      if (!unit || typeof unit !== "object") continue;
+      const nested = cleanString((unit as LocalDatasetHardwareUnit).robot_id);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+function extractLeftGripperSn(units: unknown): string | null {
+  if (!Array.isArray(units)) return null;
+  for (const unit of units) {
+    if (!unit || typeof unit !== "object") continue;
+    const record = unit as LocalDatasetHardwareUnit;
+    if (record.side !== "left") continue;
+    const value = cleanString(record.gripper_sn);
+    if (value) return value;
+  }
+  return null;
+}
+
+export function readDatasetHardwareValue(input: unknown): string | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const parsed = input as LocalDatasetHardwareJson;
+  const topLevel = extractLeftGripperSn(parsed.units);
+  if (topLevel) return topLevel;
+
+  const epochs = Array.isArray(parsed.epochs) ? parsed.epochs : [];
+  for (let index = epochs.length - 1; index >= 0; index -= 1) {
+    const epoch = epochs[index];
+    if (!epoch || typeof epoch !== "object") continue;
+    const value = extractLeftGripperSn(
+      (epoch as LocalDatasetHardwareEpoch).units,
+    );
+    if (value) return value;
+  }
+  return null;
+}
+
+export function readDatasetHardwareRobotId(input: unknown): string | null {
+  return extractRobotId(input);
+}
+
+function getXumiEpisodes(input: unknown): unknown[] {
+  const parsed = asRecord(input);
+  if (!parsed) return [];
+  return Array.isArray(parsed.episodes) && parsed.episodes.length > 0
+    ? parsed.episodes
+    : [parsed];
+}
+
+function extractCollectorSerialNumbers(input: unknown): Set<string> {
+  const values = new Set<string>();
+  for (const episode of getXumiEpisodes(input)) {
+    const episodeRecord = asRecord(episode);
+    const devices = asRecord(episodeRecord?.devices) ?? episodeRecord;
+    const collector = asRecord(devices?.collector);
+    const serialNumber = cleanString(collector?.serial_number);
+    if (serialNumber) values.add(serialNumber);
+  }
+  return values;
+}
+
+/**
+ * A collector is a dataset-level identity only when every recorded episode
+ * reports the same non-empty collector serial. Mixed collectors are left
+ * unresolved so one dataset cannot be silently assigned to the wrong device.
+ */
+export function readDatasetCollectorSerialNumber(
+  input: unknown,
+): string | null {
+  const values = extractCollectorSerialNumbers(input);
+  return values.size === 1 ? (values.values().next().value ?? null) : null;
+}
+
+function extractXumiRobotId(input: unknown): string | null {
+  const record = asRecord(input);
+  if (!record) return null;
+
+  const direct = cleanString(record.robot_id);
+  if (direct) return direct;
+
+  const devices = asRecord(record.devices);
+  const devicesRobotId = cleanString(devices?.robot_id);
+  if (devicesRobotId) return devicesRobotId;
+
+  const robot = asRecord(devices?.robot) ?? asRecord(record.robot);
+  if (robot) {
+    return (
+      cleanString(robot.robot_id) ??
+      cleanString(robot.serial_number) ??
+      cleanString(robot.id)
+    );
+  }
+  return null;
+}
+
+function extractXumiLeftGripperSn(input: unknown): string | null {
+  const record = asRecord(input);
+  if (!record) return null;
+
+  const devices = asRecord(record.devices) ?? record;
+  const grippers = asRecord(devices.grippers) ?? asRecord(record.grippers);
+  const left = asRecord(grippers?.left);
+  if (!left) return null;
+  return cleanString(left.serial_number) ?? cleanString(left.gripper_sn);
+}
+
+/**
+ * XUMI exports all device identities in `meta/xumi_collection_devices.json`.
+ * Episode metadata can use either direct fields or nested `devices` fields;
+ * when an identity changes between episodes, the latest valid value is used
+ * for robot and gripper fields while collectors retain their unique-only rule.
+ */
+export function readDatasetXumiDeviceInfo(input: unknown): {
+  collectorSerialNumber: string | null;
+  robotId: string | null;
+  leftGripperSn: string | null;
+} {
+  const episodes = getXumiEpisodes(input);
+  let robotId: string | null = null;
+  let leftGripperSn: string | null = null;
+  for (const episode of episodes) {
+    robotId = extractXumiRobotId(episode) ?? robotId;
+    leftGripperSn = extractXumiLeftGripperSn(episode) ?? leftGripperSn;
+  }
+  return {
+    collectorSerialNumber: readDatasetCollectorSerialNumber(input),
+    robotId,
+    leftGripperSn,
+  };
+}
+
+async function readDatasetHardware(datasetDir: string): Promise<{
+  collectorSerialNumber: string | null;
+  robotId: string | null;
+  leftGripperSn: string | null;
+}> {
+  const hardwarePath = path.join(datasetDir, "meta", "hardware.json");
+  const collectionDevicesPath = path.join(
+    datasetDir,
+    "meta",
+    "xumi_collection_devices.json",
+  );
+  let collectorSerialNumber: string | null = null;
+  let xumiRobotId: string | null = null;
+  let xumiLeftGripperSn: string | null = null;
+  try {
+    const raw = await fs.readFile(collectionDevicesPath, "utf-8");
+    const xumi = readDatasetXumiDeviceInfo(JSON.parse(raw));
+    collectorSerialNumber = xumi.collectorSerialNumber;
+    xumiRobotId = xumi.robotId;
+    xumiLeftGripperSn = xumi.leftGripperSn;
+  } catch {
+    // Older datasets do not have XUMI device metadata.
+  }
+  try {
+    const raw = await fs.readFile(hardwarePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    return {
+      collectorSerialNumber,
+      robotId: xumiRobotId ?? extractRobotId(parsed),
+      leftGripperSn: xumiLeftGripperSn ?? readDatasetHardwareValue(parsed),
+    };
+  } catch {
+    return {
+      collectorSerialNumber,
+      robotId: xumiRobotId,
+      leftGripperSn: xumiLeftGripperSn,
+    };
   }
 }
 
@@ -410,9 +665,10 @@ async function walkForDatasets(
       const encodedPath = encodeLocalDatasetPath(
         useAbsoluteRoutes ? currentDir : relativePath,
       );
-      const [integrity, tags, sizeBytes, facets] = await Promise.all([
+      const [integrity, tags, hardware, sizeBytes, facets] = await Promise.all([
         probeIntegrity(currentDir, info),
         readDatasetTags(currentDir),
+        readDatasetHardware(currentDir),
         sizes.sizeOf(currentDir),
         computeFacets(
           currentDir,
@@ -427,20 +683,39 @@ async function walkForDatasets(
         ? `/api/local-datasets/${encodedPath}/${thumbnailPath}`
         : null;
 
-      found.push({
+      const summary: LocalDatasetSummary = {
         relativePath,
         encodedPath,
         codebase_version: info.codebase_version,
         robot_type: info.robot_type ?? null,
+        collectorSerialNumber: hardware.collectorSerialNumber,
+        robotId: hardware.robotId,
+        leftGripperSn: hardware.leftGripperSn,
         total_episodes: info.total_episodes ?? 0,
         total_frames: info.total_frames ?? 0,
+        total_tasks: info.total_tasks ?? 0,
         fps: info.fps ?? 0,
         sizeBytes,
         thumbnailVideoUrl,
         integrity,
         tags,
         facets,
+      };
+      Object.defineProperty(summary, "localInfoFields", {
+        value: new Set(
+          [
+            "robot_type",
+            "total_episodes",
+            "total_frames",
+            "total_tasks",
+            "fps",
+          ].filter((field) =>
+            Object.prototype.hasOwnProperty.call(info, field),
+          ),
+        ),
+        enumerable: false,
       });
+      found.push(summary);
       return;
     }
     // Root itself looks like a dataset (no valid URL for it) — skip recording

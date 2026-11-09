@@ -4,7 +4,6 @@ import React, { useEffect, useRef } from "react";
 import { useTimeControls, useTimeState } from "../context/time-context";
 import { FaExpand, FaCompress, FaTimes, FaEye } from "react-icons/fa";
 import type { VideoInfo } from "@/types";
-import { VideoOverlayCanvas } from "./video-overlay-canvas";
 import { FirstFrameVideo } from "./first-frame-video";
 import { seekVideoWithFrameGate } from "@/utils/videoFramePresentation";
 import {
@@ -40,11 +39,6 @@ type VideoPlayerProps = {
   loading?: boolean;
   onVideosReady?: () => void;
   onVisibleVideoFrameReady?: (ready: boolean) => void;
-  /**
-   * Mount the VQA bbox/keypoint overlay over each video. Off by default: the
-   * overlay is annotation machinery and belongs only to the Annotations tab.
-   */
-  annotationOverlay?: boolean;
 };
 
 const videoEventCleanup = new WeakMap<HTMLVideoElement, () => void>();
@@ -60,23 +54,13 @@ export const SimpleVideosPlayer = ({
   loading = false,
   onVideosReady,
   onVisibleVideoFrameReady,
-  annotationOverlay = false,
 }: VideoPlayerProps) => {
   const t = useT();
   const visible = useDocumentVisible();
   const { seek, setIsPlaying, playingIntentRef } = useTimeControls();
   const { currentTime, externalSeekVersion, isPlaying } = useTimeState();
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
-  // Mirror videoRefs into state so the absolutely-positioned VQA overlay can
-  // re-render with the actual <video> element once it mounts. Using a ref
-  // alone means the overlay's first render still sees `null`.
-  const [videoEls, setVideoEls] = React.useState<(HTMLVideoElement | null)[]>(
-    () => [],
-  );
-  // Stable ref callbacks per index. If we used inline `(el) => { ... }` here
-  // React would re-invoke the callback on every render (the function identity
-  // changes), which combined with `setVideoEls` would toggle state on each
-  // tick and produce a "Maximum update depth exceeded" loop.
+  // Stable ref callbacks per index, so React doesn't detach and re-attach every video on each render.
   const videoRefCallbacksRef = useRef<
     ((el: HTMLVideoElement | null) => void)[]
   >([]);
@@ -100,12 +84,6 @@ export const SimpleVideosPlayer = ({
         });
       }
       videoRefs.current[idx] = el;
-      setVideoEls((prev) => {
-        if (prev[idx] === el) return prev;
-        const next = prev.slice();
-        next[idx] = el;
-        return next;
-      });
     });
   }
   const [hiddenVideos, setHiddenVideos] = React.useState<string[]>([]);
@@ -647,15 +625,6 @@ export const SimpleVideosPlayer = ({
                   targetSeconds={mediaTimeFromEpisodeTime(info, currentTime)}
                   suspended={loading}
                 />
-                {/* VQA bbox/keypoint overlay. Reads atoms + drawMode from
-                    AnnotationsContext; pointer-events fall through when
-                    not in draw mode so video controls remain usable. */}
-                {annotationOverlay && (
-                  <VideoOverlayCanvas
-                    videoEl={videoEls[idx] ?? null}
-                    cameraKey={info.filename}
-                  />
-                )}
               </div>
             </div>
           );

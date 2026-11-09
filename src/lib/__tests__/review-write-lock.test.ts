@@ -6,6 +6,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import {
   acquireReviewWriteLock,
+  recoverDanglingReviewLock,
   recoverLegacyReviewLock,
 } from "../review-write-lock";
 
@@ -57,8 +58,11 @@ test("a replaced native lock inode prevents the original writer from committing"
       Promise.resolve().then(() => lock.assertHeld()),
     ).rejects.toMatchObject({ status: 503 });
   } finally {
-    await lock.release();
+    await expect(lock.release()).rejects.toMatchObject({
+      code: "REVIEW_LOCK_CHANGED",
+    });
   }
+  expect((await fs.lstat(target + ".lock")).isSymbolicLink()).toBe(true);
 });
 
 test("a symlink cannot redirect the persistent native lock file", async () => {
@@ -119,6 +123,9 @@ test("owner publication failures leave no compatibility lock and allow recovery"
   }
   expect(failure).toMatchObject({ code: "ENOSPC" });
   expect(await fs.exists(target + ".lock")).toBe(false);
+  expect(
+    (await fs.readdir(directory)).filter((name) => name.includes(".owner-")),
+  ).toEqual([]);
   const lock = await acquireReviewWriteLock(target);
   await lock.release();
 });
@@ -301,6 +308,111 @@ test("a lost publication acknowledgement preserves a complete recoverable owner"
   ]);
 });
 
+test("an NFS publication retry reporting EEXIST accepts its own complete owner", async () => {
+  const symlink = fs.symlink.bind(fs);
+  let attempts = 0;
+  const publishing = spyOn(fs, "symlink").mockImplementation(
+    async (...args: Parameters<typeof fs.symlink>) => {
+      await symlink(...args);
+      if (++attempts === 1)
+        throw Object.assign(new Error("NFS retried a completed publication"), {
+          code: "EEXIST",
+        });
+    },
+  );
+  let lock: Awaited<ReturnType<typeof acquireReviewWriteLock>> | undefined;
+  try {
+    lock = await acquireReviewWriteLock(target);
+    await lock.assertHeld();
+    expect(attempts).toBe(1);
+    expect(
+      JSON.parse(
+        await fs.readFile(path.join(target + ".lock", "owner.json"), "utf8"),
+      ).protocol,
+    ).toBe("xense-review-flock-v2");
+  } finally {
+    publishing.mockRestore();
+    await lock?.release();
+  }
+  const next = await acquireReviewWriteLock(target);
+  await next.assertHeld();
+  await next.release();
+});
+
+test("ambiguous publication preserves a referenced owner despite a failed ownership read", async () => {
+  const symlink = fs.symlink.bind(fs);
+  const lstat = fs.lstat.bind(fs);
+  let publishedOwner: string | undefined;
+  const publishing = spyOn(fs, "symlink").mockImplementation(
+    async (...args: Parameters<typeof fs.symlink>) => {
+      await symlink(...args);
+      publishedOwner = path.join(directory, String(args[0]));
+      throw Object.assign(new Error("Lost publication acknowledgement"), {
+        code: "EIO",
+      });
+    },
+  );
+  const reading = spyOn(fs, "lstat").mockImplementation(((
+    ...args: Parameters<typeof fs.lstat>
+  ) => {
+    if (String(args[0]) === publishedOwner) {
+      publishedOwner = undefined;
+      return Promise.reject(
+        Object.assign(new Error("Transient missing NFS owner"), {
+          code: "ENOENT",
+        }),
+      );
+    }
+    return lstat(...args);
+  }) as typeof fs.lstat);
+  try {
+    await expect(acquireReviewWriteLock(target)).rejects.toMatchObject({
+      code: "EIO",
+    });
+  } finally {
+    publishing.mockRestore();
+    reading.mockRestore();
+  }
+  expect(
+    JSON.parse(
+      await fs.readFile(path.join(target + ".lock", "owner.json"), "utf8"),
+    ).protocol,
+  ).toBe("xense-review-flock-v2");
+  const next = await acquireReviewWriteLock(target);
+  await next.assertHeld();
+  await next.release();
+});
+
+test("EEXIST for our link still rejects changed owner metadata and preserves evidence", async () => {
+  const symlink = fs.symlink.bind(fs);
+  const publishing = spyOn(fs, "symlink").mockImplementation(
+    async (...args: Parameters<typeof fs.symlink>) => {
+      await symlink(...args);
+      const ownerPath = path.join(target + ".lock", "owner.json");
+      const owner = JSON.parse(await fs.readFile(ownerPath, "utf8"));
+      await fs.writeFile(
+        ownerPath,
+        JSON.stringify({ ...owner, token: "changed-owner" }),
+      );
+      throw Object.assign(new Error("NFS retried a completed publication"), {
+        code: "EEXIST",
+      });
+    },
+  );
+  try {
+    await expect(acquireReviewWriteLock(target)).rejects.toMatchObject({
+      code: "REVIEW_LOCK_CHANGED",
+    });
+  } finally {
+    publishing.mockRestore();
+  }
+  expect(
+    JSON.parse(
+      await fs.readFile(path.join(target + ".lock", "owner.json"), "utf8"),
+    ).token,
+  ).toBe("changed-owner");
+});
+
 test("failed publication never deletes an owner file replaced by a symlink", async () => {
   const outside = path.join(directory, "outside-owner");
   await fs.writeFile(outside, "preserve");
@@ -419,10 +531,10 @@ test("reaps complete unreferenced v1/v2 owner directories before publishing", as
 });
 
 test("reaps empty staging directories but preserves malformed or foreign entries", async () => {
-  await fs.writeFile(target + ".write-lock", "");
   const empty = target + ".lock.owner-" + crypto.randomUUID();
   const malformed = target + ".lock.owner-" + crypto.randomUUID();
-  const foreign = target + ".lock.owner-" + crypto.randomUUID();
+  const foreignToken = crypto.randomUUID();
+  const foreign = target + ".lock.owner-" + foreignToken;
   const extra = target + ".lock.retired-" + crypto.randomUUID();
   const link = target + ".lock.owner-" + crypto.randomUUID();
   await fs.mkdir(empty);
@@ -434,9 +546,7 @@ test("reaps empty staging directories but preserves malformed or foreign entries
     JSON.stringify({
       protocol: "xense-review-flock-v2",
       ino: "foreign-inode",
-      token: path
-        .basename(foreign)
-        .slice((path.basename(target + ".lock") + ".owner-").length),
+      token: foreignToken,
     }),
   );
   await fs.mkdir(extra);
@@ -605,6 +715,280 @@ test.each(["before_publish", "after_publish", "before_unlink", "after_unlink"])(
     expect(await fs.exists(target + ".lock")).toBe(false);
   },
 );
+
+test("publication visibility retries are bounded and release the native lease", async () => {
+  const publishing = spyOn(fs, "symlink").mockRejectedValue(
+    Object.assign(new Error("Existing link not yet visible"), {
+      code: "EEXIST",
+    }),
+  );
+  try {
+    await expect(acquireReviewWriteLock(target, 20)).rejects.toMatchObject({
+      code: "REVIEW_LOCK_BUSY",
+    });
+  } finally {
+    publishing.mockRestore();
+  }
+  const next = await acquireReviewWriteLock(target, 100);
+  await next.release();
+});
+
+test("a replaced owner file with identical content still prevents commit and cleanup", async () => {
+  const lock = await acquireReviewWriteLock(target);
+  const ownerPath = path.join(target + ".lock", "owner.json");
+  const raw = await fs.readFile(ownerPath, "utf8");
+  await fs.rename(ownerPath, ownerPath + ".original");
+  await fs.writeFile(ownerPath, raw);
+  await expect(lock.assertHeld()).rejects.toMatchObject({
+    code: "REVIEW_LOCK_CHANGED",
+  });
+  await expect(lock.release()).rejects.toMatchObject({
+    code: "REVIEW_LOCK_CHANGED",
+  });
+  expect(await fs.readFile(ownerPath, "utf8")).toBe(raw);
+});
+
+test("a referenced empty owner is preserved instead of becoming a dangling lock", async () => {
+  const owner = target + ".lock.owner-" + crypto.randomUUID();
+  await fs.mkdir(owner);
+  await fs.symlink(path.basename(owner), target + ".lock");
+  await expect(acquireReviewWriteLock(target)).rejects.toMatchObject({
+    code: "REVIEW_LOCK_CHANGED",
+  });
+  expect(await fs.readdir(owner)).toEqual([]);
+  expect(await fs.readlink(target + ".lock")).toBe(path.basename(owner));
+});
+
+test("dangling locks have a distinct failure and operator recovery preserves evidence", async () => {
+  const link = path.basename(target) + ".lock.owner-" + crypto.randomUUID();
+  await fs.writeFile(target, "original records\n");
+  await fs.writeFile(target + ".tmp-unfinished", "unfinished");
+  await fs.symlink(link, target + ".lock");
+  await expect(acquireReviewWriteLock(target)).rejects.toMatchObject({
+    code: "REVIEW_LOCK_DANGLING",
+  });
+  expect(await fs.readlink(target + ".lock")).toBe(link);
+  const ino = (await fs.stat(target + ".write-lock")).ino;
+  const result = await recoverDanglingReviewLock(target);
+  expect(await fs.readlink(result.quarantine)).toBe(link);
+  expect(await fs.readFile(result.backup!, "utf8")).toBe("original records\n");
+  expect(await fs.readFile(target, "utf8")).toBe("original records\n");
+  expect(await fs.readFile(target + ".tmp-unfinished", "utf8")).toBe(
+    "unfinished",
+  );
+  expect((await fs.stat(target + ".write-lock")).ino).toBe(ino);
+  const next = await acquireReviewWriteLock(target);
+  await next.assertHeld();
+  await next.release();
+});
+
+test.each([
+  "directory",
+  "empty-owner",
+  "owner-symlink",
+  "outside-link",
+  "invalid-token",
+  "nonempty-owner",
+])("dangling recovery refuses %s and preserves its contents", async (kind) => {
+  const owner = target + ".lock.owner-" + crypto.randomUUID();
+  if (kind === "directory") await fs.mkdir(target + ".lock");
+  else if (kind === "outside-link")
+    await fs.symlink("../outside", target + ".lock");
+  else if (kind === "invalid-token")
+    await fs.symlink(
+      "episode-reviews.json.lock.owner-invalid",
+      target + ".lock",
+    );
+  else {
+    if (kind === "owner-symlink") await fs.symlink("missing", owner);
+    else {
+      await fs.mkdir(owner);
+      if (kind === "nonempty-owner")
+        await fs.writeFile(path.join(owner, "owner.json"), "preserve");
+    }
+    await fs.symlink(path.basename(owner), target + ".lock");
+  }
+  await expect(recoverDanglingReviewLock(target)).rejects.toMatchObject({
+    status: 409,
+  });
+  expect(await fs.lstat(target + ".lock")).toBeDefined();
+  expect(
+    (await fs.readdir(directory)).some((name) =>
+      name.includes(".quarantined-"),
+    ),
+  ).toBe(false);
+  if (kind === "nonempty-owner")
+    expect(await fs.readFile(path.join(owner, "owner.json"), "utf8")).toBe(
+      "preserve",
+    );
+});
+
+test("dangling recovery without records creates no synthetic review or backup", async () => {
+  await fs.symlink(
+    path.basename(target) + ".lock.owner-" + crypto.randomUUID(),
+    target + ".lock",
+  );
+  const result = await recoverDanglingReviewLock(target);
+  expect(result.backup).toBeUndefined();
+  expect(await fs.exists(target)).toBe(false);
+  expect(
+    (await fs.readdir(directory)).some((name) => name.includes(".backup-")),
+  ).toBe(false);
+});
+
+test("dangling recovery refuses an active native lease", async () => {
+  const lock = await acquireReviewWriteLock(target);
+  try {
+    await expect(recoverDanglingReviewLock(target, 20)).rejects.toMatchObject({
+      code: "REVIEW_LOCK_BUSY",
+    });
+    await lock.assertHeld();
+  } finally {
+    await lock.release();
+  }
+});
+
+test("dangling recovery rechecks an owner that reappears during backup", async () => {
+  const owner = target + ".lock.owner-" + crypto.randomUUID();
+  await fs.symlink(path.basename(owner), target + ".lock");
+  await fs.writeFile(target, "records");
+  const copyFile = fs.copyFile.bind(fs);
+  const copying = spyOn(fs, "copyFile").mockImplementation(
+    async (...args: Parameters<typeof fs.copyFile>) => {
+      await copyFile(...args);
+      await fs.mkdir(owner);
+    },
+  );
+  try {
+    await expect(recoverDanglingReviewLock(target)).rejects.toMatchObject({
+      status: 409,
+    });
+  } finally {
+    copying.mockRestore();
+  }
+  expect(await fs.readlink(target + ".lock")).toBe(path.basename(owner));
+  expect(await fs.readdir(owner)).toEqual([]);
+});
+
+test("owner lookup I/O failures are not misclassified as dangling locks", async () => {
+  const owner = target + ".lock.owner-" + crypto.randomUUID();
+  await fs.symlink(path.basename(owner), target + ".lock");
+  const lstat = fs.lstat.bind(fs);
+  const reading = spyOn(fs, "lstat").mockImplementation(((
+    ...args: Parameters<typeof fs.lstat>
+  ) => {
+    if (String(args[0]) === owner)
+      return Promise.reject(
+        Object.assign(new Error("Storage unavailable"), { code: "EIO" }),
+      );
+    return lstat(...args);
+  }) as typeof fs.lstat);
+  try {
+    await expect(acquireReviewWriteLock(target)).rejects.toMatchObject({
+      code: "EIO",
+    });
+    await expect(recoverDanglingReviewLock(target)).rejects.toMatchObject({
+      code: "EIO",
+    });
+  } finally {
+    reading.mockRestore();
+  }
+  expect(await fs.readlink(target + ".lock")).toBe(path.basename(owner));
+});
+
+test.each(["link", "native"])(
+  "dangling recovery aborts if the %s identity changes during backup",
+  async (kind) => {
+    const link = path.basename(target) + ".lock.owner-" + crypto.randomUUID();
+    await fs.symlink(link, target + ".lock");
+    await fs.writeFile(target, "records");
+    const copyFile = fs.copyFile.bind(fs);
+    const copying = spyOn(fs, "copyFile").mockImplementation(
+      async (...args: Parameters<typeof fs.copyFile>) => {
+        await copyFile(...args);
+        if (kind === "link") {
+          await fs.unlink(target + ".lock");
+          await fs.symlink(link + ".changed", target + ".lock");
+        } else {
+          await fs.rename(
+            target + ".write-lock",
+            target + ".write-lock-original",
+          );
+          await fs.writeFile(target + ".write-lock", "");
+        }
+      },
+    );
+    try {
+      await expect(recoverDanglingReviewLock(target)).rejects.toMatchObject({
+        code: "REVIEW_LOCK_CHANGED",
+      });
+    } finally {
+      copying.mockRestore();
+    }
+    expect((await fs.lstat(target + ".lock")).isSymbolicLink()).toBe(true);
+    expect(
+      (await fs.readdir(directory)).some((name) =>
+        name.includes(".quarantined-"),
+      ),
+    ).toBe(false);
+    expect(await fs.readFile(target, "utf8")).toBe("records");
+  },
+);
+
+test("dangling recovery CLI requires all-writer confirmation and audits the quarantine", async () => {
+  const storage = path.join(directory, ".xense-viewer");
+  await fs.mkdir(storage);
+  const review = path.join(storage, "episode-reviews.json");
+  const raw = JSON.stringify({ version: 1, datasets: {} });
+  await fs.writeFile(review, raw);
+  const link = path.basename(review) + ".lock.owner-" + crypto.randomUUID();
+  await fs.symlink(link, review + ".lock");
+  const script = path.resolve(
+    import.meta.dir,
+    "../../../scripts/recover-review-lock.ts",
+  );
+  async function run(...flags: string[]) {
+    const child = Bun.spawn([process.execPath, script, directory, ...flags], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [code, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    return { code, stdout, stderr };
+  }
+  const rejected = await run("--dangling", "--no-legacy-writers");
+  expect(rejected.code).toBe(1);
+  expect(await fs.readlink(review + ".lock")).toBe(link);
+  expect(await fs.exists(path.join(storage, "review-diagnostics"))).toBe(false);
+  const recovered = await run("--dangling", "--no-writers");
+  expect(recovered.code).toBe(0);
+  expect(recovered.stdout).toContain("Dangling lock quarantined:");
+  const auditDirectory = path.join(storage, "review-diagnostics");
+  const names = await fs.readdir(auditDirectory);
+  expect(names).toHaveLength(1);
+  const events = (
+    await fs.readFile(path.join(auditDirectory, names[0]), "utf8")
+  )
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(events.map((event) => event.event)).toEqual([
+    "dangling_lock_recovery_requested",
+    "dangling_lock_recovered",
+  ]);
+  expect(events[0].host).toBeString();
+  expect(events[0].pid).toBeGreaterThan(0);
+  expect(await fs.readlink(path.join(storage, events[1].quarantine))).toBe(
+    link,
+  );
+  expect(await fs.readFile(path.join(storage, events[1].backup), "utf8")).toBe(
+    raw,
+  );
+  expect(await fs.readFile(review, "utf8")).toBe(raw);
+});
 
 test("operator recovery backs up bytes and preserves unfinished writes", async () => {
   await fs.writeFile(target, "original records\n");

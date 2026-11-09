@@ -24,10 +24,9 @@ import {
   gripperSeriesKeys,
   selectGripperSeriesRows,
 } from "@/utils/gripperSeries";
+import { lazyWithChunkRecovery } from "@/utils/lazyChunkRecovery";
 import { evenlySampleArray } from "@/utils/sampling";
 import type { ChartSeriesRow } from "@/types/chart.types";
-
-import { lazyWithChunkRecovery } from "@/utils/lazyChunkRecovery";
 
 const EpisodePose3DViewer = lazyWithChunkRecovery(
   "episode-pose-3d-viewer",

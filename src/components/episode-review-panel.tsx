@@ -1,6 +1,7 @@
 "use client";
 
-import { REVIEW_TIME_ZONE } from "@/utils/reviewTime";
+import { formatCalendarDateTime } from "@/utils/calendarTime";
+
 import { useEffect, useId, useState } from "react";
 import { useEpisodeReviews } from "@/context/episode-reviews-context";
 import { reviewSaveKey } from "@/utils/reviewSaveQueue";
@@ -318,9 +319,9 @@ export default function EpisodeReviewPanel({
                 )}{" "}
                 ·{" "}
                 <time dateTime={review.reviewed_at}>
-                  {new Date(review.reviewed_at).toLocaleString(
+                  {formatCalendarDateTime(
+                    review.reviewed_at,
                     locale === "zh" ? "zh-CN" : "en-US",
-                    { timeZone: REVIEW_TIME_ZONE, hour12: false },
                   )}
                 </time>{" "}
                 UTC+8 ·{" "}

@@ -5,6 +5,11 @@ import path from "node:path";
 import {
   directorySizeBytes,
   discoverLocalDatasets,
+  readDatasetCollectorSerialNumber,
+  readDatasetHardwareRobotId,
+  readDatasetHardwareValue,
+  readDatasetXumiDeviceInfo,
+  serializeLocalDatasetsResponseForClient,
 } from "@/lib/local-datasets-discovery";
 import { addLocation } from "@/lib/dataset-locations-store";
 import { decodeLocalDatasetPath } from "@/utils/datasetRoute";
@@ -23,6 +28,153 @@ afterAll(async () => {
   );
 });
 
+describe("readDatasetHardwareValue", () => {
+  test("reads the legacy top-level units format", () => {
+    expect(
+      readDatasetHardwareValue({
+        robot_type: "bi_taccap_gripper",
+        units: [
+          { side: "right", gripper_sn: "TCGU01A28Z9999m" },
+          { side: "left", gripper_sn: "TCGU01A28Z0033m" },
+        ],
+      }),
+    ).toBe("TCGU01A28Z0033m");
+  });
+
+  test("falls back to the latest epoch units format", () => {
+    expect(
+      readDatasetHardwareValue({
+        robot_type: "bi_taccap_gripper",
+        epochs: [
+          {
+            from_episode: 0,
+            to_episode: 20,
+            units: [{ side: "left", gripper_sn: "TCGU01A28Z0061m" }],
+          },
+          {
+            from_episode: 20,
+            to_episode: 40,
+            units: [{ side: "left", gripper_sn: "TCGU01A28Z0041m" }],
+          },
+        ],
+      }),
+    ).toBe("TCGU01A28Z0041m");
+  });
+});
+
+describe("readDatasetHardwareRobotId", () => {
+  test("reads the top-level robot_id field", () => {
+    expect(
+      readDatasetHardwareRobotId({
+        robot_id: "TacVerse-A01",
+        units: [{ side: "left", gripper_sn: "TCGU01A28Z0033m" }],
+      }),
+    ).toBe("TacVerse-A01");
+  });
+
+  test("reads the top-level units robot_id field", () => {
+    expect(
+      readDatasetHardwareRobotId({
+        units: [{ side: "left", robot_id: "TacVerse-units" }],
+      }),
+    ).toBe("TacVerse-units");
+  });
+
+  test("falls back to the latest epoch robot_id field", () => {
+    expect(
+      readDatasetHardwareRobotId({
+        epochs: [
+          { robot_id: "TacVerse-epoch-1" },
+          { robot_id: "TacVerse-epoch-2" },
+        ],
+      }),
+    ).toBe("TacVerse-epoch-2");
+  });
+});
+
+describe("readDatasetCollectorSerialNumber", () => {
+  test("reads one unique collector serial across all episodes", () => {
+    expect(
+      readDatasetCollectorSerialNumber({
+        episodes: [
+          { devices: { collector: { serial_number: "collector-1" } } },
+          { devices: { collector: { serial_number: " collector-1 " } } },
+        ],
+      }),
+    ).toBe("collector-1");
+  });
+
+  test("does not select a collector when episodes report mixed serials", () => {
+    expect(
+      readDatasetCollectorSerialNumber({
+        episodes: [
+          { devices: { collector: { serial_number: "collector-1" } } },
+          { devices: { collector: { serial_number: "collector-2" } } },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  test("does not infer a collector from missing episode metadata", () => {
+    expect(
+      readDatasetCollectorSerialNumber({
+        episodes: [{ devices: { collector: { serial_number: null } } }],
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("readDatasetXumiDeviceInfo", () => {
+  test("reads the collector identity and left gripper from XUMI devices", () => {
+    expect(
+      readDatasetXumiDeviceInfo({
+        episodes: [
+          {
+            devices: {
+              collector: { serial_number: "TCGU01A31Z0015B" },
+              grippers: {
+                left: { serial_number: "TCGU01A28Z0069m" },
+              },
+            },
+          },
+        ],
+      }),
+    ).toEqual({
+      collectorSerialNumber: "TCGU01A31Z0015B",
+      robotId: null,
+      leftGripperSn: "TCGU01A28Z0069m",
+    });
+  });
+
+  test("supports devices.robot and gripper_sn aliases from the latest episode", () => {
+    expect(
+      readDatasetXumiDeviceInfo({
+        episodes: [
+          {
+            devices: {
+              robot: { id: "xtac_umi_g1_3" },
+              grippers: {
+                left: { serial_number: "old-left-gripper" },
+              },
+            },
+          },
+          {
+            devices: {
+              robot: { serial_number: "xtac_umi_g1_4" },
+              grippers: {
+                left: { gripper_sn: "new-left-gripper" },
+              },
+            },
+          },
+        ],
+      }),
+    ).toEqual({
+      collectorSerialNumber: null,
+      robotId: "xtac_umi_g1_4",
+      leftGripperSn: "new-left-gripper",
+    });
+  });
+});
 describe("directorySizeBytes", () => {
   test("sums files across nested directories", async () => {
     const root = await tempTree();
@@ -133,6 +285,15 @@ describe("discoverLocalDatasets with a switched path", () => {
     expect(decodeLocalDatasetPath(byRoot.datasets[0].encodedPath)).toBe(
       "Xense/in-root",
     );
+    expect(byRoot.datasets[0].localInfoFields).toBeInstanceOf(Set);
+
+    const serializable = serializeLocalDatasetsResponseForClient(byRoot);
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        serializable.datasets[0],
+        "localInfoFields",
+      ),
+    ).toBe(false);
 
     const switched = await discoverLocalDatasets(archive);
     expect(switched.root).toBe(path.resolve(root));
@@ -143,6 +304,49 @@ describe("discoverLocalDatasets with a switched path", () => {
     // Away from the root, the absolute path is what the file routes need.
     expect(decodeLocalDatasetPath(switched.datasets[0].encodedPath)).toBe(
       path.join(archive, "TacVerse-RDT"),
+    );
+  });
+
+  test("strips server-only dataset metadata from client payloads", async () => {
+    const root = await tempTree();
+    await dataset(path.join(root, "Xense", "client-safe"));
+    process.env.LOCAL_DATASET_ROOT = root;
+
+    const discovery = await discoverLocalDatasets();
+    expect(discovery.datasets[0].localInfoFields?.has("fps")).toBe(true);
+    expect(Object.getOwnPropertyNames(discovery.datasets[0])).toContain(
+      "localInfoFields",
+    );
+
+    discovery.datasets[0].annotation = {
+      models: ["test-model"],
+      annotated_at: null,
+      episodes_total: 2,
+      episodes_usable: 1,
+      spent_usd: 0,
+      outcomes: { completed: 1 },
+      episodes_with_findings: 0,
+      findings: [],
+    };
+    const serialized = serializeLocalDatasetsResponseForClient(discovery);
+    expect(serialized.datasets[0].annotation).toEqual(
+      discovery.datasets[0].annotation,
+    );
+    expect(serialized.datasets[0].localInfoFields).toBeUndefined();
+    expect(Object.getOwnPropertyNames(serialized.datasets[0])).not.toContain(
+      "localInfoFields",
+    );
+    expect(Object.getPrototypeOf(serialized.datasets[0])).toBe(
+      Object.prototype,
+    );
+    expect(Object.getPrototypeOf(serialized.datasets[0].integrity)).toBe(
+      Object.prototype,
+    );
+    expect(Object.getPrototypeOf(serialized.datasets[0].tags)).toBe(
+      Object.prototype,
+    );
+    expect(Object.getPrototypeOf(serialized.datasets[0].facets)).toBe(
+      Object.prototype,
     );
   });
 
@@ -268,6 +472,11 @@ describe("interrupted conversions", () => {
     // The bytes it is holding are the reason it is shown at all.
     expect(result.interrupted[0].sizeBytes).toBeGreaterThan(0);
     expect(result.interrupted[0].updatedDay).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    const serialized = serializeLocalDatasetsResponseForClient(result);
+    expect(JSON.parse(JSON.stringify(serialized)).interrupted).toEqual(
+      result.interrupted,
+    );
   });
 
   /**

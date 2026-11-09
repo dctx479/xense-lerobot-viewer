@@ -87,7 +87,11 @@ def missing_dependency() -> str | None:
     )
 
 
-def list_org_repos(org: str, limit: int | None) -> list[tuple[str, str | None]]:
+def list_org_repos(
+    org: str,
+    limit: int | None,
+    token: str | None = None,
+) -> list[tuple[str, str | None]]:
     """Every dataset in the org as `(repo_id, remote_commit_sha)`.
 
     `expand=["sha"]` costs nothing extra on the listing call and is what lets
@@ -102,12 +106,20 @@ def list_org_repos(org: str, limit: int | None) -> list[tuple[str, str | None]]:
     # returns newest-first. Passing it would raise on the installed version.
     repos = [
         (d.id, getattr(d, "sha", None))
-        for d in list_datasets(author=org, sort="lastModified", expand=["sha"])
+        for d in list_datasets(
+            author=org,
+            sort="lastModified",
+            expand=["sha"],
+            token=token,
+        )
     ]
     return repos[:limit] if limit else repos
 
 
-def fetch_repo_details(repo_ids: list[str]) -> list[dict]:
+def fetch_repo_details(
+    repo_ids: list[str],
+    token: str | None = None,
+) -> list[dict]:
     """Per-repo commit and size, for the explicit `--repo` path that never lists.
 
     `files_metadata=True` costs one extra round trip per repo but returns the
@@ -127,7 +139,7 @@ def fetch_repo_details(repo_ids: list[str]) -> list[dict]:
     out: list[dict] = []
     for repo_id in repo_ids:
         try:
-            info = api.dataset_info(repo_id, files_metadata=True)
+            info = api.dataset_info(repo_id, files_metadata=True, token=token)
             siblings = list(getattr(info, "siblings", None) or [])
             sizes = [getattr(s, "size", None) for s in siblings]
             out.append({
@@ -152,9 +164,71 @@ def fetch_repo_details(repo_ids: list[str]) -> list[dict]:
     return out
 
 
+MOVED_CORPUS_CONTAINER = "TacVerse"
+MOVED_CORPUS_BUCKETS = (
+    "merged",
+    "raw",
+    "failed",
+    "released",
+    "in-processing",
+)
+MOVED_ORG_DEFAULT_BUCKET = {
+    "TacVerse": "merged",
+    "TacVerse-RAW": "raw",
+    "TacVerse-Failed": "failed",
+}
+
+
 def repo_target(root: str, org: str, repo_id: str) -> str:
-    """`<root>/<org>/<name>` — the layout the viewer's scanner expects."""
-    return os.path.join(root, org, repo_id.split("/")[-1])
+    """Return the local directory for a Hub dataset.
+
+    Most organizations retain the historical ``<root>/<org>/<name>`` layout.
+    The TacVerse corpus is different: its former sibling organizations now
+    live below one container as ``TacVerse/<bucket>/<name>``.
+
+    An existing dataset wins over the source's default bucket so a dataset
+    moved to ``released`` or ``in-processing`` keeps being refreshed in place.
+    If several copies exist, the source's default wins; an otherwise ambiguous
+    target is refused instead of overwriting an arbitrary copy.
+    """
+    name = repo_id.rsplit("/", 1)[-1]
+    default_bucket = MOVED_ORG_DEFAULT_BUCKET.get(org)
+    if default_bucket is None:
+        return os.path.join(root, org, name)
+
+    container = os.path.join(root, MOVED_CORPUS_CONTAINER)
+    default_target = os.path.join(container, default_bucket, name)
+    existing = [
+        os.path.join(container, bucket, name)
+        for bucket in MOVED_CORPUS_BUCKETS
+        if os.path.isdir(os.path.join(container, bucket, name))
+    ]
+    if default_target in existing:
+        return default_target
+    if len(existing) == 1:
+        return existing[0]
+    if len(existing) > 1:
+        relative = ", ".join(os.path.relpath(target, root) for target in existing)
+        raise RuntimeError(
+            f"Ambiguous local target for {repo_id}: found {relative}. "
+            "Keep only the intended corpus copy before syncing."
+        )
+    return default_target
+
+
+def stats_repo_target(root: str, org: str, repo_id: str) -> str:
+    """Return the metadata-only target for a Hub dataset.
+
+    Workbench statistics for the HF ``TacVerse`` organization are kept in the
+    direct historical layout ``<root>/TacVerse/<name>``. They must not inherit
+    the bucket default used by full-corpus synchronization, because the
+    Workbench scanner deliberately excludes ``TacVerse/merged`` outputs.
+    Other organizations continue to use the normal sync target resolver.
+    """
+    if org == MOVED_CORPUS_CONTAINER:
+        name = repo_id.rsplit("/", 1)[-1]
+        return os.path.join(root, MOVED_CORPUS_CONTAINER, name)
+    return repo_target(root, org, repo_id)
 
 
 def local_snapshot_shas(target: str) -> set[str]:
@@ -284,7 +358,7 @@ def make_reporter(repo_id: str, index: int, total: int):
     return Reporter
 
 
-def preflight(repo_id: str) -> str | None:
+def preflight(repo_id: str, token: str | None = None) -> str | None:
     """Resolve one small file before committing to the whole org.
 
     Without this the endpoint problem only surfaces after the first repo has
@@ -301,6 +375,7 @@ def preflight(repo_id: str) -> str | None:
                 repo_id=repo_id,
                 filename="meta/info.json",
                 repo_type="dataset",
+                token=token,
                 local_dir=tmp,
             )
         return None
@@ -345,6 +420,10 @@ def main() -> int:
     if blocker:
         return fail(blocker)
 
+    from huggingface_hub import get_token
+
+    token = os.environ.get("XENSE_HF_TOKEN", "").strip() or get_token()
+
     # The org is a directory under the root (`repo_target`), so with explicit
     # repos it comes from the repo ids rather than being asked for twice and
     # allowed to disagree with them.
@@ -367,10 +446,10 @@ def main() -> int:
     details: list[dict] | None = None
     try:
         if args.repo:
-            details = fetch_repo_details(args.repo)
+            details = fetch_repo_details(args.repo, token)
             listed = [(d["id"], d["sha"]) for d in details]
         else:
-            listed = list_org_repos(org, args.limit)
+            listed = list_org_repos(org, args.limit, token)
     except Exception as exc:  # network down, bad token, unknown org
         return fail(f"Could not list datasets for {org}: {exc}")
 
@@ -427,7 +506,7 @@ def main() -> int:
     # Fail fast and legibly rather than once per repo with a library message
     # that names neither the endpoint nor the fix.
     progress(phase="preflight", percent=0)
-    blocker = preflight(work[0])
+    blocker = preflight(work[0], token)
     if blocker:
         return fail(blocker)
 
@@ -450,6 +529,7 @@ def main() -> int:
             snapshot_download(
                 repo_id=repo_id,
                 repo_type="dataset",
+                token=token,
                 local_dir=target,
                 # Resumes partial transfers and skips files already identical,
                 # so re-running after an interruption is cheap.

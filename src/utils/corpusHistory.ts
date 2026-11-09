@@ -1,3 +1,4 @@
+import { calendarDayKey, calendarDayDifference } from "@/utils/calendarTime";
 /**
  * Daily corpus snapshots — the basis for "new today".
  *
@@ -105,20 +106,13 @@ export function snapshotFromSources(
   return { capturedAt, sources: out };
 }
 
-/** Local-time YYYY-MM-DD. Local, not UTC: "today" has to mean the operator's
- *  today, or an evening capture in UTC+8 would land on the next day. */
+/** Project UTC+8 day key, shared with reviews, reports and personnel schedules. */
 export function dayKey(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return calendarDayKey(date);
 }
 
 function daysBetween(from: string, to: string): number | null {
-  const a = Date.parse(`${from}T00:00:00Z`);
-  const b = Date.parse(`${to}T00:00:00Z`);
-  if (Number.isNaN(a) || Number.isNaN(b)) return null;
-  return Math.round((b - a) / 86_400_000);
+  return calendarDayDifference(from, to);
 }
 
 const ZERO: SourceDelta = {

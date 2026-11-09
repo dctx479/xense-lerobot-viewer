@@ -92,9 +92,11 @@ Other open viewers refresh on focus and every 30 seconds while visible; the
 homepage overview refreshes every 60 seconds while visible. Requests do not
 overlap and reads are aborted when the owning view unmounts. Writes merge under
 an exclusive lock and replace the JSON atomically; failures are shown without
-displaying an unsaved checkmark. If the server crashes while writing and leaves
-episode-reviews.json.lock behind, stop all viewer processes before removing
-that stale lock directory.
+displaying an unsaved checkmark. Recognized orphan locks recover on the next
+save. Empty legacy locks and dangling owner links require different operator
+recovery commands; follow the [lock recovery guide](docs/resource-lifecycle.md#review-write-locks-and-old-version-interoperability)
+and pause the relevant writers on every host first. Never delete the persistent
+episode-reviews.json.write-lock file; its presence does not mean it is locked.
 
 Resource handling preserves active playback: paused 3D scenes render on demand
 (including seeking, camera controls and asynchronously loaded models), active
@@ -166,12 +168,12 @@ NFS latency, video loading and other dataset shapes can differ.
 - **Dataset health probing**: each dataset is scanned for `meta/info.json` + `data/` + `videos/` and classified as Healthy / Empty / Incomplete. The homepage shows red/amber card borders + corner badges for problem datasets; clicking an incomplete one opens a diagnostic page instead of failing on a missing file.
 - **Editable dataset tags** (task / scene / objects): annotate each dataset with a task category (`pick_and_place`, `peeling`, …), a scene (`tabletop`, `kitchen`, …), and a list of manipulated objects (`cucumber`, `box`, …). Tags persist as `meta/xense_tags.json` inside the dataset and power a task-based filter on the homepage. See [Tagging datasets](#tagging-datasets) below.
 - **Synchronized video + telemetry**: episode pages play all cameras side-by-side, synced to interactive Recharts time series for `observation.state`, `action`, and other signals.
-- **Language annotations editor** (lerobot v3.1 schema): an **Annotations** tab for authoring per-episode language atoms — subtasks, plans, memory, task rephrasings, interjections, robot speech, and VQA. Draw a bounding box or click a keypoint directly on any video for grounded VQA, arrange events on a multi-track timeline, and edit each atom in an inspector. Saves to `meta/lerobot_annotations.json` inside the dataset. See [Annotating episodes](#annotating-episodes) below.
+- **TacFlow automatic annotation** (read-only): the homepage summarises TacFlow's ④ annotations across the corpus (outcomes, findings by category, one list of every data issue and operator mistake, each linking to that moment); the **Annotations** tab shows one episode's annotation beside the 3D replay or the videos, following and driving playback. See [Automatic annotation](#automatic-annotation) below.
 - **Statistics, Frames, Action Insights, Filtering** panels for dataset quality inspection — flagged episodes can be exported as a ready-to-run LeRobot CLI command.
 - **3D pose trajectories**: the Episodes chart has a `3D` mode that draws the current episode's Cartesian path with a marker synced to video playback, and Action Insights adds a **cross-episode trajectory distribution** — one line per episode, hover to identify, click to isolate, with per-arm layers toggled independently. Both need complete named xyz feature groups (`left_tcp.x/y/z`); numeric-only feature names are skipped, since nothing identifies which three dimensions form a position.
-- **Subtask labeling** (Pi-style segmentation): an Episodes-tab panel for labeling contiguous subtask ranges that persist until the next one, saved to `meta/annotations.json`. An **Export** button compiles them into lerobot-native per-frame `subtask_index` + `meta/subtasks.parquet` — the layer that produces a trainable `sample["subtask"]`.
 - **Parquet browser**: a raw table view of any `.parquet` in the dataset — file picker, column picker, paged rows, cell expansion, CSV export. Parsing happens server-side, so a 100 MB v3 data file pages without shipping the whole row group to the browser.
 - **Doctor**: read-only, dataset-wide diagnostics immediately after Action Insights. Its native TypeScript engine provides 13 checks over metadata, timing, actions, dimension-level continuity, optional configurable TCP linear/angular speed limits, video containers, statistics, episode consistency, training readiness, anomalies, and portability; the speed check is enabled explicitly in the Doctor panel, it needs no Python runtime, and it can send affected episode IDs into the existing flagged-episode workflow.
+- **Multi-Hub dataset statistics**: the Workbench dataset statistics view can read Hugging Face, ModelScope, or both catalogs at once. Hugging Face remains the default. ModelScope supports nested repositories such as `XenseRobotics/TacVerse-Raw`: the parent repository is discovered through its owner, then each child containing `<dataset>/meta/info.json` is reported as a `TacVerse/<dataset>` Workbench row. Set `MODELSCOPE_API_TOKEN` for private ModelScope datasets, or save a local token from Workbench → Configuration. A token saved in Workbench takes precedence over the environment variable and is never included in shared configuration.
 - **3D URDF replay** for SO-100, SO-101, OpenArm, G1, and bimanual TacCap data-collection grippers. TacCap replay treats recorded poses as canonical TCP by default; the `Tracker → TCP` button applies the measured or dataset-provided extrinsic only when selected manually. It animates both finger joints, conditionally replays complete `head.xyz+r1-r6` trajectories with a self-contained schematic HMD, and labels the world axes (+X forward, +Y left, +Z up); its URDF/STL assets are bundled under `public/urdf/taccap-grippers`. Other robot assets load from the public Hugging Face `lerobot/robot-urdfs` bucket. Recorded cameras replay alongside the model as synchronized overlays — grouped into left / top-center / right by `left`, `right` and `head` in the feature name — and each tile can be dragged to resize, clicked to bring to front, or double-clicked to reset.
 - **Per-card "Open episode N" shortcut**: jump straight to a specific episode from the homepage card.
 - **Keyboard playback control**: `Space` plays/pauses, `↑`/`↓` step between episodes, and `←`/`→` seek ±5 s in 3D replay. The shortcuts keep working after you click the sidebar or a replay control, and still yield to text fields and to buttons that need `Space` themselves.
@@ -195,7 +197,34 @@ bun install
 bun dev
 ```
 
+```bash
+LOCAL_DATASET_ROOT=/home/xense/src/tacverse-workbench/datasets
+bun dev
+```
+
 Open <http://localhost:3000>. The homepage scans your local LeRobot root and shows everything it finds.
+
+### ModelScope credentials
+
+For private ModelScope datasets, either set the server-side environment
+variable before starting the app:
+
+```bash
+MODELSCOPE_API_TOKEN=ms_xxxxxxxxxxxxxxxxx bun dev
+```
+
+The default ModelScope repository is `XenseRobotics/TacVerse-Raw`. To point the
+viewer at another nested ModelScope repository, set
+`MODELSCOPE_DATASET_REPO=owner/repository` before starting the server. The
+Workbench keeps the repository name (`TacVerse`) as its logical organization,
+so local datasets continue to live under `<LOCAL_DATASET_ROOT>/TacVerse`.
+The previous repository `XenseRobotics/TacVerse` is still accepted when passed
+explicitly.
+
+Or open Workbench → Configuration and save a token in the local Workbench.
+The local Workbench token takes precedence over `MODELSCOPE_API_TOKEN`; it is
+stored under `.xense-viewer/secrets/modelscope-token`, excluded by `.gitignore`,
+and is never included in the shared Workbench configuration.
 
 ## Local dataset root
 
@@ -259,6 +288,15 @@ huggingface-cli download lerobot/svla_so101_pickplace \
 ```
 
 Once the download finishes, refresh the homepage — the new dataset will appear.
+
+Workbench → HF download tools can download one checked dataset revision or run a
+checked batch queue of repository paths. The queue downloads up to 2 datasets in
+parallel by default, adjustable from 1 to 3, while files inside each dataset
+also transfer in parallel. File concurrency defaults to 8 workers and is
+adjustable from 1 to 8 in the panel; lowering either value is useful on unstable
+links or slow disks. The same worker setting applies to Hugging Face and
+ModelScope downloads. Downloads still stage, verify, and promote atomically, so
+a cancelled or failed run does not replace the existing dataset.
 
 ## Commands
 
@@ -351,54 +389,14 @@ The search box also matches against task / scene / object values, so typing `cuc
 
 `updated_at` is auto-stamped by the server on every save. Missing fields are treated as "unset" — an absent `xense_tags.json` is equivalent to all fields empty.
 
-## Annotating episodes
+## Automatic annotation
 
-The **Annotations** tab brings lerobot's v3.1 language schema ([lerobot#3467](https://github.com/huggingface/lerobot/pull/3467)) into the visualizer so you can author multi-modal language supervision next to the frames it describes. Each annotation is a _language atom_, split into two kinds:
+TacFlow's ④ stage has a vision-language model read each episode's head-camera footage and writes a report into the corpus registry (`<corpus>/.registry/reports/annotate/…`), next to the dataset, not inside it. The viewer only reads it:
 
-| Kind           | Styles                                  | Stored in             | Behavior                             |
-| -------------- | --------------------------------------- | --------------------- | ------------------------------------ |
-| **Persistent** | `task_aug`, `subtask`, `plan`, `memory` | `language_persistent` | Holds across the episode (broadcast) |
-| **Event**      | `interjection`, `vqa`, speech (`say`)   | `language_events`     | Fires at a specific frame timestamp  |
+- **Homepage panel** — annotated datasets / episodes, the outcome mix, findings by category, and every data issue and operator mistake; a row opens the episode at that moment (`?tab=annotations&t=`).
+- **Annotations tab** — the dataset's instruction and the model's reading of the work (and whether they agree), the outcome, findings as cards, a timeline band coloured by hand, and the step feed. Every time seeks the player; the step under the playhead stays highlighted. The left side is the 3D replay by default (`?left=video` for the plain videos).
 
-What the tab gives you:
-
-- **Quick-add bar** for text atoms (subtask / plan / memory / task rephrasing / robot speech / non-spatial VQA).
-- **Grounded VQA** — drag a bounding box or click a keypoint directly on any video. The gesture becomes a `Where is the X?` / `Point to the X.` Q&A pair tied to the camera you drew on.
-- **Multi-track timeline** — one lane per atom kind; click to seek, drag a playhead, and drag-create / edge-resize subtask spans.
-- **Inspector** — select any atom to edit its content, timestamp (snapped to the nearest source frame), or camera tag.
-
-### How annotations are stored
-
-Saving writes a per-dataset JSON sidecar:
-
-```
-<LOCAL_DATASET_ROOT>/<org>/<dataset>/meta/lerobot_annotations.json
-```
-
-```json
-{
-  "version": 2,
-  "episodes": {
-    "0": {
-      "atoms": [
-        {
-          "role": "assistant",
-          "content": "pick up the box",
-          "style": "subtask",
-          "timestamp": 1.5,
-          "camera": null,
-          "tool_calls": null
-        }
-      ]
-    }
-  },
-  "updated_at": "2026-06-22T14:13:58.714Z"
-}
-```
-
-On load, atoms are read with this precedence: **unsaved in-session edits → the JSON sidecar → atoms already embedded in the parquet** (`language_persistent` / `language_events`). A dataset that ships with the columns renders immediately; a dataset without them starts blank.
-
-This fork is **local-only**: there is no FastAPI backend and no push-to-Hub. Writing annotations back into the dataset's `data/chunk-*/file-*.parquet` (the lerobot export path) is intentionally **not** implemented — the JSON sidecar is the source of truth, and the visualizer reads it directly. Because saving writes into the dataset's `meta/` directory, mount your dataset root **writable** (drop the `:ro` flag in the Docker examples below) if you want to persist edits.
+Nothing is edited here: the labels are claims to check, and corrections go back through TacFlow. The manual language-atom and subtask editors this fork once had are gone (2026-11-02): annotation starts from the model, not from a blank timeline.
 
 ## Homepage dashboard & Hugging Face sync
 
@@ -418,16 +416,25 @@ would be pulled before transferring anything — some orgs hold far more on the
 Hub than you have locally, and the count is the only warning you get.
 
 Requires Python with `huggingface_hub` (`pip install -r scripts/requirements.txt`)
-and a token for private repos (`huggingface-cli login`).
+and a token for private repos (`hf auth login`, or the optional HF token login
+shown on the homepage). The homepage login only validates/stores the
+credential; dataset transfer still starts from the source tab below.
 
 > **Endpoint note.** Sync defaults to `HF_ENDPOINT=https://hf-mirror.com` to keep
+> Workbench statistics use the official Hub endpoint by default because this
+> metadata request is not served reliably by the mirror. Override it with
+> `HF_CATALOG_ENDPOINT` only if your mirror supports `hf_hub_download`.
+>
 > downloads off a metered VPN. If the mirror answers with a `308` redirect to
 > `huggingface.co`, downloads fail with an explanatory message — and the mirror
 > is saving you nothing anyway, because the bytes then come from the origin.
 >
 > That usually means a transparent proxy is capturing `hf-mirror.com` itself, so
-> the mirror sees a foreign IP and bounces you to the origin. Add `hf-mirror.com`
-> to the proxy's direct/bypass rules and it should serve normally.
+> the mirror sees a foreign IP and bounces you to the origin. The Viewer adds
+> `hf-mirror.com` (including subdomains) to `NO_PROXY`/`no_proxy` for its native
+> download child only; it does not change the proxy used by the browser or other
+> server requests. If a system-level transparent proxy ignores those variables,
+> add `hf-mirror.com` to that proxy application's direct/bypass rules as well.
 >
 > To download in the meantime:
 >
@@ -435,11 +442,66 @@ and a token for private repos (`huggingface-cli login`).
 > HF_ENDPOINT=https://huggingface.co bun dev
 > ```
 
+## Workbench tab
+
+Workbench gives a read-only operations view over the local datasets for one
+organization. Open it from any local dataset episode by clicking the
+**Workbench** tab, or jump straight to an organization view with a URL like:
+
+```text
+http://localhost:3000/?org=TacVerse&tab=workbench
+```
+
+Shared Workbench configuration and reward rules use a three-way merge against
+the last successfully synchronized remote snapshot. Independent field edits,
+new records, and one-sided deletions are merged automatically. Records are
+matched by ID; assignment and role histories by date; staffing records by
+workstation and date. Conflicting field edits or delete-versus-edit changes
+pause synchronization without overwriting either side. The sync panel lists
+conflicting paths and lets you keep local or remote values for all conflicts,
+while retaining independent changes. If the combined document violates
+configuration constraints, choosing a side uses that entire document instead.
+On first sync, saved local differences require a choice where no common
+snapshot exists; unsaved defaults adopt remote configuration. Read-only sync
+can merge remote changes locally while keeping local changes pending upload.
+Snapshots are stored per organization under
+`<LOCAL_DATASET_ROOT>/.xense-viewer/workbench/shared-sync/baselines/`.
+
+The tab has three subviews:
+
+- **Grouped statistics** rolls datasets up by uploader, task, robot type, Left
+  SN, or source.
+- **Dataset statistics** shows an organization-level table with local health,
+  episodes, frames, recorded hours, average episode duration, and lightweight
+  checks.
+- **Current dataset checks** runs the per-dataset custom checks when Workbench
+  is opened from a local episode.
+
+For the Left SN OKR workflow, choose **Group by: Left SN**, set the start and
+end dates, then enter the daily OKR hours and reward amount. The end date is
+exclusive. OKR status uses `✅` when recorded hours are at least the target, `…`
+when they are at least 90% of the target, and `❌` below 90%.
+
+The **Workstation** column appears only while grouping by Left SN. Click
+**Workstation mappings** to edit labels for the selected organization. **Import
+defaults** loads the repository defaults, and **Save** writes only to your local
+dataset root, not to the git-tracked defaults. Repository defaults live in
+`src/config/workbench-workstation-mappings.json`; local overrides live at:
+
+```text
+<LOCAL_DATASET_ROOT>/.xense-viewer/workbench/<org>.workstation-mappings.json
+```
+
+Use **Refresh statistics** to sync lightweight metadata for Workbench views. It
+does not enable the disabled full-dataset Hugging Face download path. Use
+**Reload local data** to refresh local dataset discovery without editing any
+dataset files.
+
 ## Architecture notes
 
 - Dataset files are served by an internal route `/api/local-datasets/[encodedPath]/[...filePath]` with HTTP range support for video streaming.
 - The Doctor tab posts to `…/[encodedPath]/doctor`. The route loads JSON/JSONL and Parquet directly in Node/Bun with `hyparquet`, runs the checks in TypeScript, and returns a structured PASS/WARN/FAIL report. It is read-only, defaults to the full dataset in the UI, samples at most 20 physical videos for MP4 structure/track metadata, and offers 10/25/50/100/full/custom scopes. The separate dimension-level continuity check reports coordinated frame-to-frame jumps by feature name and timestamp without changing the Python-compatible aggregate action check. TCP speed detection is opt-in via the panel switch; when enabled it independently checks each `vx/vy/vz` component (default 1.5 m/s) and world-frame `ωx/ωy/ωz` component derived from the r1–r6 SO(3) rotation (default 270 deg/s); both limits are configurable.
-- Dataset-level sidecars are read/written through dedicated routes: `…/[encodedPath]/tags` (`xense_tags.json`) and `…/[encodedPath]/annotations` (`lerobot_annotations.json`).
+- Dataset-level sidecars are read/written through dedicated routes: `…/[encodedPath]/tags` (`xense_tags.json`); the TacFlow annotation report is read through `…/[encodedPath]/auto-annotations`.
 - The homepage discovers datasets via `src/lib/local-datasets-discovery.ts`.
 - All cloud/HF Hub loading code (OAuth, proxy, search) has been removed.
 - SO/OpenArm/G1 URDF assets load from `https://huggingface.co/buckets/lerobot/robot-urdfs/` (override with `NEXT_PUBLIC_URDF_BASE_URL`). TacCap gripper assets are bundled in this repository under `public/urdf/taccap-grippers`.
@@ -478,3 +540,68 @@ docker run -p 7860:7860 \
 This project is forked from the LeRobot dataset visualizer originally created by [@Mishig25](https://github.com/mishig25) (huggingface/lerobot PR [#1055](https://github.com/huggingface/lerobot/pull/1055)).
 
 The Doctor checks are a TypeScript port of the diagnostic concepts from [`lerobot-doctor`](https://github.com/jashshah999/lerobot-doctor) by Jash Shah (Apache-2.0); no Python package or subprocess is used by this integration.
+
+## TacVerse Impact private analytics
+
+The **TacVerse Impact** tab aggregates Publisher Analytics for every dataset in
+`TacVerse/tacverse` and adds `TacVerse/opendata` as a standalone repository.
+It also aggregates HF Likes, Discussions, pull requests, and comments for the
+selected source.
+
+Downloads retain the Hugging Face dataset-download definition: file requests
+from the same IP in the same repository within five minutes are combined, while
+repeat activity across later windows, IPs, or devices can be counted again.
+The dashboard therefore presents Downloads separately from the Enterprise-log
+unique-downloader estimate. Authenticated dashboard loads refresh Publisher
+Analytics independently from the heavier cached sources. If Hugging Face has
+published a row for the current UTC day, that incomplete day is included
+immediately in Downloads, the 7/30-day totals, and the trend chart.
+The server's saved Hugging Face token must be able to read the private
+Collection members and the TacVerse Publisher Analytics export.
+
+Private analytics are unlocked with an HF access token that can read the
+required private Collection members. On the first successful login, the server
+stores that token at the project-local ignored path
+`.xense-viewer/secrets/tacverse-impact-key` with file mode `0600`, creates a
+separate random session secret beside it, and returns a long-lived HttpOnly,
+SameSite cookie. The HF token is never stored in browser storage or returned to
+the page. Later visits use the cookie and do not require the token again. The
+**Lock** button clears that browser cookie.
+
+For unattended deployments, `TACVERSE_IMPACT_ACCESS_KEY` remains available as
+an optional preconfigured unlock credential. The server still uses a saved HF
+credential to request private Hugging Face analytics.
+
+The unlock screen also has **View public datasets**. This route makes anonymous
+requests only and includes public Collection members plus
+`TacVerse/opendata` all-time download totals and Community activity. The
+public dashboard charts the current totals by repository. Daily download
+history remains exclusive to Publisher Analytics, so the public chart does not
+present cumulative totals as daily activity. This route does not read the saved
+HF token, private Collection members, Publisher Analytics, or Enterprise logs.
+
+Two known private repositories are used as completeness sentinels so an
+under-scoped HF token cannot silently produce a partial private total. Override
+that list when Collection membership changes:
+
+```bash
+TACVERSE_IMPACT_REQUIRED_PRIVATE_REPOS=TacVerse/repo-one,TacVerse/repo-two
+```
+
+Enterprise Plus request logs provide anonymous unique-downloader, repeat-use,
+session, cross-repository, and geographic metrics. Hugging Face must provision
+the request-level export for the organization. Put the exported CSV, JSON array,
+or JSONL file at the project-local ignored path:
+
+```text
+.xense-viewer/tacverse-impact/request-logs.csv
+```
+
+To read it from another secure location instead:
+
+```bash
+TACVERSE_IMPACT_LOG_PATH=/secure/path/request-logs.csv
+```
+
+Put internal hashed identifiers, without Hugging Face usernames, in
+`<LOCAL_DATASET_ROOT>/.xense-viewer/tacverse-impact/internal-hashes.json`.

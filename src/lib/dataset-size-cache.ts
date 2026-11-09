@@ -1,3 +1,4 @@
+import { calendarDayKey } from "@/utils/calendarTime";
 /**
  * Remembered `sizeBytes` per dataset, so scanning a large location is not a
  * fresh `lstat` of every file on it.
@@ -199,7 +200,7 @@ export async function createDatasetSizeResolver(
   const entries = await readEntries(root).catch(
     () => new Map<string, DatasetSizeEntry>(),
   );
-  const today = new Date().toISOString().slice(0, 10);
+  const today = calendarDayKey();
   let changed = false;
 
   return {

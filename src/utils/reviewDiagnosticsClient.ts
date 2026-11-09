@@ -121,6 +121,8 @@ function reviewFailureMessage(
       return tStandalone("review.legacyLock");
     case "REVIEW_LOCK_CHANGED":
       return tStandalone("review.lockChanged");
+    case "REVIEW_LOCK_DANGLING":
+      return tStandalone("review.lockDangling");
     case "REVIEW_LOCK_UNAVAILABLE":
       return tStandalone("review.lockUnavailable");
     default:

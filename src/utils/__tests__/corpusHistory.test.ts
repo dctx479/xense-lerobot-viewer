@@ -33,14 +33,13 @@ const historyWith = (days: Record<string, DaySnapshot>): CorpusHistory => ({
 });
 
 describe("dayKey", () => {
-  test("formats local calendar date, not UTC", () => {
-    // 23:30 local on the 14th must stay the 14th even where UTC has rolled over.
-    const d = new Date(2026, 7, 14, 23, 30, 0);
+  test("formats the project UTC+8 calendar date independently of the host", () => {
+    const d = new Date("2026-08-14T23:30:00+08:00");
     expect(dayKey(d)).toBe("2026-08-14");
   });
 
   test("zero-pads month and day", () => {
-    expect(dayKey(new Date(2026, 0, 5))).toBe("2026-01-05");
+    expect(dayKey(new Date("2026-01-05T00:00:00+08:00"))).toBe("2026-01-05");
   });
 });
 

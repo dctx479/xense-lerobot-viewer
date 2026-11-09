@@ -96,24 +96,44 @@ describe("zh translation coverage", () => {
     // Tool names the user also meets as a tab, a CLI and a file extension.
     "viewer.tab.doctor",
     "viewer.tab.parquet",
+    "viewer.tab.workbench",
+    "viewer.tab.impact",
+    // Workbench product labels, protocol identifiers, units, examples, and
+    // repository paths stay stable across locales.
+    "workbench.episode",
+    "workbench.fps",
+    "workbench.hub",
+    "workbench.huggingFace",
+    "workbench.mappingWorkstationPlaceholder",
+    "workbench.modelScope",
+    "workbench.panelTitle",
+    "workbench.robotIdSource",
+    "workbench.sourceTaccap",
+    "workbench.sourceTacflow",
+    "workbench.sourceXtac",
+    "workbench.xtacCategory",
     // Coordinate-frame names the operator uses verbatim (world / anchor), so
     // the 3D replay axis label reads the same in both languages.
     "urdf.worldAxes",
     // Pure formula — symbols and units only, nothing to translate.
     "doctor.speedFormula",
+    // Dataset identity format and English measurement units on the home groups.
+    "home.groupTitle",
+    "home.groupEpisodes",
+    "home.groupFrames",
     // Value + unit, and units render in English in both languages (see the
     // "writes units in English" test below), so these come out identical.
     "doctor.checksWord",
     "doctor.distBins",
     "grid.framesSuffix",
+    // ④ + usable/total — symbols and numbers only.
+    "grid.annotationChip",
     "pq.columns",
     "pq.jumpTitle",
     "pq.rowGroups",
     "pq.rows",
     "source.filesDetail",
     "stats.bins_other",
-    "subtask.frame",
-    "subtask.frameOf",
   ].sort();
 
   it("keeps exactly the intended terms in English", () => {

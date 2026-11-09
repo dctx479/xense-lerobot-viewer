@@ -24,13 +24,7 @@ import {
   useTimeState,
 } from "@/context/time-context";
 import { FlaggedEpisodesProvider } from "@/context/flagged-episodes-context";
-import {
-  AnnotationsProvider,
-  useAnnotations,
-} from "@/context/annotations-context";
-import { AnnotationsPanel } from "@/components/annotations-panel";
-import { AnnotationsTimeline } from "@/components/annotations-timeline";
-import { SubtaskPanel } from "@/components/subtask-panel";
+import DatasetReviewErrorBoundary from "@/components/dataset-review-error-boundary";
 import {
   EpisodeReviewsProvider,
   useEpisodeReviewData,
@@ -97,6 +91,14 @@ const ParquetTablePanel = lazyWithChunkRecovery(
   "parquet-table-panel",
   () => import("@/components/parquet-table-panel"),
 );
+const DatasetReviewPanel = lazyWithChunkRecovery(
+  "dataset-review-panel",
+  () => import("@/components/dataset-review-panel"),
+);
+const TacVerseImpactPanel = lazyWithChunkRecovery(
+  "tacverse-impact-panel",
+  () => import("@/components/tacverse-impact-panel"),
+);
 // Recharts is ~150KB gz and not above-the-fold (videos render first on the
 // Episodes tab). Lazy-load it so the initial chunk can ship faster and
 // videos start downloading in parallel with the chart bundle.
@@ -139,18 +141,7 @@ function logSwitchTiming(
   );
 }
 
-type ActiveTab =
-  | "episodes"
-  | "annotations"
-  | "statistics"
-  | "frames"
-  | "insights"
-  | "doctor"
-  | "filtering"
-  | "urdf"
-  | "parquet";
-
-const ACTIVE_TABS: readonly ActiveTab[] = [
+const ACTIVE_TABS = [
   "episodes",
   "annotations",
   "statistics",
@@ -160,10 +151,14 @@ const ACTIVE_TABS: readonly ActiveTab[] = [
   "filtering",
   "urdf",
   "parquet",
-];
+  "workbench",
+  "impact",
+] as const;
+
+type ActiveTab = (typeof ACTIVE_TABS)[number];
 
 function isActiveTab(value: string | null): value is ActiveTab {
-  return value !== null && (ACTIVE_TABS as readonly string[]).includes(value);
+  return value !== null && ACTIVE_TABS.some((tab) => tab === value);
 }
 
 // Subscribes to `currentTime` so its parent doesn't have to. Keeping this
@@ -248,11 +243,13 @@ export default function EpisodeViewer({
   dataset,
   episodeId,
   reviewBrowsePath,
+  episodeIndices,
 }: {
   reviewBrowsePath: string;
   org: string;
   dataset: string;
   episodeId: number;
+  episodeIndices?: number[];
 }) {
   const t = useT();
   const [data, setData] = useState<EpisodeData | null>(null);
@@ -397,42 +394,20 @@ export default function EpisodeViewer({
         browsePath={reviewBrowsePath}
       >
         <FlaggedEpisodesProvider>
-          <AnnotationsProvider>
-            <EpisodeBootstrap data={data!} />
-            <EpisodeViewerInner
-              data={data!}
-              org={org}
-              dataset={dataset}
-              episodeLoading={episodeLoading}
-              episodeError={error}
-              selectedEpisodeId={selectedEpisodeId}
-              onEpisodeSelect={selectEpisode}
-            />
-          </AnnotationsProvider>
+          <EpisodeViewerInner
+            data={data!}
+            org={org}
+            dataset={dataset}
+            episodeLoading={episodeLoading}
+            episodeError={error}
+            selectedEpisodeId={selectedEpisodeId}
+            onEpisodeSelect={selectEpisode}
+            episodeIndices={episodeIndices}
+          />
         </FlaggedEpisodesProvider>
       </EpisodeReviewsProvider>
     </TimeProvider>
   );
-}
-
-/** Wires the loaded episode into the AnnotationsProvider. */
-function EpisodeBootstrap({ data }: { data: EpisodeData }) {
-  const { setEpisode } = useAnnotations();
-  useEffect(() => {
-    setEpisode(
-      data.episodeId,
-      { repoId: data.datasetInfo.repoId },
-      data.languageAtoms,
-      data.frameTimestamps,
-    );
-  }, [
-    data.episodeId,
-    data.datasetInfo.repoId,
-    data.languageAtoms,
-    data.frameTimestamps,
-    setEpisode,
-  ]);
-  return null;
 }
 
 function EpisodeViewerInner({
@@ -443,6 +418,7 @@ function EpisodeViewerInner({
   episodeError,
   selectedEpisodeId,
   onEpisodeSelect,
+  episodeIndices,
 }: {
   data: EpisodeData;
   org?: string;
@@ -451,17 +427,22 @@ function EpisodeViewerInner({
   episodeError: string | null;
   selectedEpisodeId: number;
   onEpisodeSelect: (episodeId: number) => void;
+  episodeIndices?: number[];
 }) {
-  const { t, tRich } = useLocale();
+  const { t } = useLocale();
   const {
-    datasetInfo,
+    datasetInfo: rawDatasetInfo,
     episodeId,
     videosInfo,
     chartDataGroups,
     velocityChartDataGroups,
-    episodes,
+    episodes: dataEpisodeIndices,
     task,
   } = data;
+  const episodes = episodeIndices ?? dataEpisodeIndices;
+  const datasetInfo = episodeIndices?.length
+    ? { ...rawDatasetInfo, total_episodes: episodeIndices.length }
+    : rawDatasetInfo;
 
   const [videosReadyEpisodeId, setVideosReadyEpisodeId] = useState<
     number | null
@@ -511,17 +492,28 @@ function EpisodeViewerInner({
   // correct tab renders on the very first frame (no post-mount flash).
   // Safe because EpisodeViewerInner only mounts client-side (behind a loading gate).
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    const requestedTab = searchParams.get("tab");
+    if (isActiveTab(requestedTab)) return requestedTab;
     if (typeof window !== "undefined") {
-      // `?tab=` wins over the remembered tab, so a shared link can open
-      // straight on e.g. the 3D replay (`?tab=urdf`); sessionStorage is
-      // per browser tab, so a link opened in a new tab never had one.
-      const fromUrl = searchParams.get("tab");
-      if (isActiveTab(fromUrl)) return fromUrl;
       const stored = sessionStorage.getItem("activeTab");
       if (isActiveTab(stored)) return stored;
     }
     return "episodes";
   });
+
+  // Old bookmarks and session state may still name a tab removed from this
+  // version. Render a valid fallback and make the URL tell the same truth.
+  useEffect(() => {
+    const requestedTab = searchParams.get("tab");
+    if (!requestedTab || isActiveTab(requestedTab)) return;
+    const newParams = new URLSearchParams(searchParams.toString());
+    newParams.set("tab", activeTab);
+    window.history.replaceState(
+      {},
+      "",
+      `${window.location.pathname}?${newParams.toString()}`,
+    );
+  }, [activeTab, searchParams]);
   // A ref lets the URL synchronizer and imperative media pause react to a
   // click immediately, without forcing the heavyweight viewer to render an
   // urgent state update before the transition starts.
@@ -691,6 +683,7 @@ function EpisodeViewerInner({
   const [episodeLengthStats, setEpisodeLengthStats] =
     useState<EpisodeLengthStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [statsError, setStatsError] = useState<string | null>(null);
   const statsLoadedRef = useRef(false);
   const [episodeFramesData, setEpisodeFramesData] =
     useState<EpisodeFramesData | null>(null);
@@ -724,6 +717,7 @@ function EpisodeViewerInner({
     framesLoadedRef.current = false;
     insightsLoadedRef.current = false;
     setEpisodeLengthStats(null);
+    setStatsError(null);
     setEpisodeFramesData(null);
     setCrossEpData(null);
   }, [datasetInfo.repoId]);
@@ -752,6 +746,7 @@ function EpisodeViewerInner({
     if (statsLoadedRef.current) return;
     statsLoadedRef.current = true;
     setStatsLoading(true);
+    setStatsError(null);
     setColumnMinMax(computeColumnMinMax(data.chartDataGroups));
     if (repoId) {
       getDatasetVersionAndInfo(repoId)
@@ -763,7 +758,10 @@ function EpisodeViewerInner({
           if (!mountedRef.current) return;
           setEpisodeLengthStats(result);
         })
-        .catch(() => {})
+        .catch((error) => {
+          if (!mountedRef.current) return;
+          setStatsError(error instanceof Error ? error.message : String(error));
+        })
         .finally(() => {
           if (mountedRef.current) setStatsLoading(false);
         });
@@ -824,6 +822,7 @@ function EpisodeViewerInner({
   useEffect(() => {
     if (activeTab === "statistics") loadStats();
     if (activeTab === "doctor") loadStats();
+    if (activeTab === "workbench") loadStats();
     if (activeTab === "frames") loadFrames();
     if (activeTab === "insights") loadInsights();
     if (activeTab === "filtering") {
@@ -835,8 +834,16 @@ function EpisodeViewerInner({
 
   const handleTabChange = (tab: ActiveTab) => {
     setActiveTab(tab);
+    const newParams = new URLSearchParams(searchParams.toString());
+    newParams.set("tab", tab);
+    window.history.replaceState(
+      {},
+      "",
+      `${window.location.pathname}?${newParams.toString()}`,
+    );
     if (tab === "statistics") loadStats();
     if (tab === "doctor") loadStats();
+    if (tab === "workbench") loadStats();
     if (tab === "frames") loadFrames();
     if (tab === "insights") loadInsights();
     if (tab === "filtering") {
@@ -943,14 +950,13 @@ function EpisodeViewerInner({
   const urdfSeekByRef = useRef<((seconds: number) => void) | undefined>(
     undefined,
   );
-  // Which annotation system the Annotations tab's right pane is showing.
-  // `?ann=` opens a link straight on one editor (e.g. `?tab=annotations&ann=auto`).
-  const [annotationEditor, setAnnotationEditor] = useState<
-    "atoms" | "subtasks" | "auto"
-  >(() => {
-    const fromUrl = searchParams.get("ann");
-    return fromUrl === "subtasks" || fromUrl === "auto" ? fromUrl : "atoms";
-  });
+  // Left of the auto annotation: the 3D replay (default — poses and every camera together) or the plain
+  // videos. `?left=video` opens on the videos.
+  const [autoLeft, setAutoLeft] = useState<"replay" | "video">(() =>
+    searchParams.get("left") === "video" ? "video" : "replay",
+  );
+  const replayBesideAnnotation =
+    activeTab === "annotations" && autoLeft === "replay";
 
   const [urdfMounted, setUrdfMounted] = useState(activeTab === "urdf");
 
@@ -989,18 +995,40 @@ function EpisodeViewerInner({
   useEffect(() => {
     if (episodeLoading || selectedEpisodeId !== episodeId) return;
     const timeParam = searchParams.get("t");
-    if (!timeParam) {
+    const frameParam = searchParams.get("frame");
+    const frameTimestamps = data.frameTimestamps ?? [];
+    const frameValue = frameParam === null ? NaN : Number(frameParam);
+    const hasFrame =
+      Number.isInteger(frameValue) &&
+      frameValue >= 0 &&
+      (frameTimestamps.length === 0 || frameValue < frameTimestamps.length);
+    const applyKey = hasFrame
+      ? `${episodeId}:frame:${frameValue}`
+      : timeParam
+        ? `${episodeId}:${timeParam}`
+        : null;
+    if (!applyKey) {
       appliedUrlTimeRef.current = null;
       return;
     }
-    const applyKey = `${episodeId}:${timeParam}`;
     if (appliedUrlTimeRef.current === applyKey) return;
-    const timeValue = parseFloat(timeParam);
-    if (!isNaN(timeValue)) {
+    const timeValue = hasFrame
+      ? (frameTimestamps[frameValue] ??
+        (data.datasetInfo.fps > 0 ? frameValue / data.datasetInfo.fps : 0))
+      : Number.parseFloat(timeParam ?? "");
+    if (Number.isFinite(timeValue)) {
       appliedUrlTimeRef.current = applyKey;
       seek(timeValue);
     }
-  }, [episodeId, episodeLoading, searchParams, seek, selectedEpisodeId]);
+  }, [
+    data.datasetInfo.fps,
+    data.frameTimestamps,
+    episodeId,
+    episodeLoading,
+    searchParams,
+    seek,
+    selectedEpisodeId,
+  ]);
 
   // Initialize page based on the current episode. Splitting this out from
   // the keyboard listener effect lets the listener attach exactly once.
@@ -1055,15 +1083,14 @@ function EpisodeViewerInner({
       } else if (key === "ArrowDown" || key === "ArrowUp") {
         if (inTextEntry) return;
         e.preventDefault();
-        const nextEpisodeId =
-          key === "ArrowDown" ? s.episodeId + 1 : s.episodeId - 1;
-        const lowestEpisodeId = s.episodes[0];
-        const highestEpisodeId = s.episodes[s.episodes.length - 1];
+        const currentIndex = s.episodes.indexOf(s.episodeId);
+        const nextIndex = currentIndex + (key === "ArrowDown" ? 1 : -1);
         if (
-          nextEpisodeId >= lowestEpisodeId &&
-          nextEpisodeId <= highestEpisodeId
+          currentIndex !== -1 &&
+          nextIndex >= 0 &&
+          nextIndex < s.episodes.length
         ) {
-          s.onEpisodeSelect(nextEpisodeId);
+          s.onEpisodeSelect(s.episodes[nextIndex]);
         }
       } else if (
         s.activeTab === "urdf" &&
@@ -1143,6 +1170,16 @@ function EpisodeViewerInner({
           "parquet",
           t("viewer.tab.parquet"),
           t("viewer.tab.parquetTitle"),
+        )}
+        {renderTab(
+          "workbench",
+          t("viewer.tab.workbench"),
+          t("viewer.tab.workbenchTitle"),
+        )}
+        {renderTab(
+          "impact",
+          t("viewer.tab.impact"),
+          t("viewer.tab.impactTitle"),
         )}
         <div className="ml-auto flex shrink-0 items-center gap-2 pr-3">
           <Link
@@ -1368,7 +1405,7 @@ function EpisodeViewerInner({
           )}
 
           {activeTab === "annotations" && (
-            <div className="annotations-skin flex flex-1 min-h-0 flex-col gap-4">
+            <div className="flex flex-1 min-h-0 flex-col gap-4">
               <div className="flex shrink-0 items-center gap-3">
                 <p
                   className="truncate text-base font-medium text-slate-200"
@@ -1379,104 +1416,84 @@ function EpisodeViewerInner({
                 <p className="text-[10px] uppercase tracking-wide text-slate-500 tabular">
                   {t("ep.episodeLabel", { id: episodeId })}
                 </p>
+                <div
+                  role="tablist"
+                  aria-label={t("autoAnn.leftAria")}
+                  className="inline-flex shrink-0 ml-auto overflow-hidden rounded-md border border-white/10 text-sm"
+                >
+                  {(
+                    [
+                      { id: "replay", label: t("autoAnn.leftReplay") },
+                      { id: "video", label: t("autoAnn.leftVideo") },
+                    ] as const
+                  ).map((entry) => (
+                    <button
+                      key={entry.id}
+                      role="tab"
+                      type="button"
+                      aria-selected={autoLeft === entry.id}
+                      onClick={() => setAutoLeft(entry.id)}
+                      className={`px-3 py-1.5 transition-colors ${
+                        autoLeft === entry.id
+                          ? "bg-cyan-500/20 text-cyan-100"
+                          : "bg-[var(--surface-1)]/60 text-slate-300 hover:text-slate-100"
+                      }`}
+                    >
+                      {entry.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {/* Footage and editor on screen together — annotating while the
-                  video is scrolled out of view is the whole problem this layout
-                  exists to fix.
-
-                  A grid, not nested flex columns, because the video has to be a
-                  direct child of the scroller: `position: sticky` is confined to
-                  its own parent's box, so a video nested inside the left column
-                  unsticks the moment that column scrolls past — which at narrow
-                  widths is exactly when the editor below it comes into view.
-                  Grid placement lets the DOM stay [video][rest][editor] while
-                  `lg` puts the first two in column 1 and the editor alongside. */}
-              <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_27rem] lg:grid-rows-[auto_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[minmax(0,1fr)_30rem]">
-                {videosInfo.length > 0 && (
-                  <div className="sticky top-0 z-20 bg-[var(--bg)] pb-3 lg:static lg:col-start-1 lg:row-start-1 lg:max-h-[55vh] lg:overflow-y-auto lg:bg-transparent lg:pb-0">
-                    <SimpleVideosPlayer
-                      datasetKey={datasetInfo.repoId}
-                      videosInfo={videosInfo}
-                      episodeId={episodeId}
-                      loading={playerLoading}
-                      onVideosReady={handleVideosReady}
-                      onVisibleVideoFrameReady={handleVisibleVideoFrameReady}
-                      annotationOverlay
-                    />
+              {/* Footage beside the automatic annotation. A grid, not nested flex columns: the video has to be a
+                  direct child of the scroller for `position: sticky` to hold at narrow widths. The annotation is read,
+                  not authored, so its column takes ~44% of the width (as on the Argus board). */}
+              <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_minmax(28rem,44%)] lg:grid-rows-[auto_minmax(0,1fr)] lg:overflow-hidden">
+                {replayBesideAnnotation ? (
+                  /* The 3D replay as the footage: poses and every camera stream together, its clock bridged to
+                     the page's so the annotation panel follows it and drives it (URDFViewer `syncClock`). */
+                  <div className="flex min-h-[70vh] min-w-0 flex-col lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:min-h-0">
+                    <Suspense fallback={<Loading />}>
+                      <URDFViewer
+                        key={`ann-${datasetInfo.repoId}`}
+                        data={data}
+                        active={
+                          replayBesideAnnotation &&
+                          !episodeLoading &&
+                          !episodeError
+                        }
+                        syncClock
+                      />
+                    </Suspense>
                   </div>
+                ) : (
+                  <>
+                    {videosInfo.length > 0 && (
+                      <div className="sticky top-0 z-20 bg-[var(--bg)] pb-3 lg:static lg:col-start-1 lg:row-start-1 lg:max-h-[55vh] lg:overflow-y-auto lg:bg-transparent lg:pb-0">
+                        <SimpleVideosPlayer
+                          datasetKey={datasetInfo.repoId}
+                          onVisibleVideoFrameReady={
+                            handleVisibleVideoFrameReady
+                          }
+                          videosInfo={videosInfo}
+                          episodeId={episodeId}
+                          loading={playerLoading}
+                          onVideosReady={handleVideosReady}
+                        />
+                      </div>
+                    )}
+                    <div className="flex min-w-0 flex-col gap-4 lg:col-start-1 lg:row-start-2 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+                      <PlaybackBar />
+                    </div>
+                  </>
                 )}
 
-                <div className="flex min-w-0 flex-col gap-4 lg:col-start-1 lg:row-start-2 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
-                  <div className="grounding-intro">
-                    <span className="section-kicker">
-                      {t("ep.groundedVqa")}
-                    </span>
-                    <ul>
-                      <li>{t("ep.vqaHint1")}</li>
-                      <li>
-                        {tRich("ep.vqaHint2", {
-                          enter: <kbd>↵</kbd>,
-                          esc: <kbd>Esc</kbd>,
-                        })}
-                      </li>
-                    </ul>
-                  </div>
-                  <PlaybackBar />
-                  <AnnotationsTimeline duration={data.duration} />
-                </div>
-
-                {/* Both annotation systems live here, one at a time: stacking
-                    them would put the lower one back off screen. */}
-                <div className="flex min-h-0 flex-col lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:overflow-hidden">
-                  <div
-                    role="tablist"
-                    aria-label={t("ann.editorTablistAria")}
-                    className="flex shrink-0 gap-1 border-b border-white/5"
-                  >
-                    {(
-                      [
-                        { id: "atoms", label: t("ann.title") },
-                        { id: "subtasks", label: t("subtask.title") },
-                        { id: "auto", label: t("autoAnn.title") },
-                      ] as const
-                    ).map((entry) => (
-                      <button
-                        key={entry.id}
-                        role="tab"
-                        type="button"
-                        aria-selected={annotationEditor === entry.id}
-                        onClick={() => setAnnotationEditor(entry.id)}
-                        className={`-mb-px rounded-t-md border-b-2 px-3 py-2 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)] ${
-                          annotationEditor === entry.id
-                            ? "border-[var(--accent)] text-[var(--accent)]"
-                            : "border-transparent text-slate-400 hover:text-slate-200"
-                        }`}
-                      >
-                        {entry.label}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="min-h-0 flex-1 pt-3 lg:overflow-y-auto lg:pr-1">
-                    {annotationEditor === "atoms" ? (
-                      <AnnotationsPanel
-                        cameraKeys={videosInfo.map((v) => v.filename)}
-                      />
-                    ) : annotationEditor === "subtasks" ? (
-                      <SubtaskPanel
-                        encodedPath={encodedDatasetPath}
-                        episodeId={episodeId}
-                        fps={datasetInfo.fps}
-                        task={task}
-                        frameTimestamps={data.frameTimestamps}
-                      />
-                    ) : (
-                      <AutoAnnotationPanel
-                        encodedPath={encodedDatasetPath}
-                        episodeId={episodeId}
-                      />
-                    )}
-                  </div>
+                <div className="min-h-0 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:overflow-y-auto lg:pr-1">
+                  <AutoAnnotationPanel
+                    encodedPath={encodedDatasetPath}
+                    episodeId={episodeId}
+                    task={task}
+                  />
                 </div>
               </div>
             </div>
@@ -1598,6 +1615,29 @@ function EpisodeViewerInner({
                 encodedPath={encodedDatasetPath}
                 episodeId={episodeId}
               />
+            </Suspense>
+          )}
+
+          {activeTab === "workbench" && (
+            <DatasetReviewErrorBoundary>
+              <Suspense fallback={<Loading />}>
+                <DatasetReviewPanel
+                  datasetInfo={datasetInfo}
+                  episodeData={data}
+                  episodeLengthStats={episodeLengthStats}
+                  episodeLengthStatsLoading={statsLoading}
+                  episodeLengthStatsError={statsError}
+                  onRetryEpisodeStats={loadStats}
+                  encodedPath={encodedDatasetPath}
+                  datasetName={datasetDisplayName}
+                />
+              </Suspense>
+            </DatasetReviewErrorBoundary>
+          )}
+
+          {activeTab === "impact" && (
+            <Suspense fallback={<Loading />}>
+              <TacVerseImpactPanel />
             </Suspense>
           )}
         </div>

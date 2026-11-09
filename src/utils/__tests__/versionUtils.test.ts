@@ -435,9 +435,9 @@ describe("dataset metadata request sharing", () => {
     const { getDatasetVersionAndInfo } = await import("@/utils/versionUtils");
     const original = globalThis.fetch;
     let calls = 0;
-    let started!: () => void;
-    const requestStarted = new Promise<void>((resolve) => {
-      started = resolve;
+    let markFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      markFetchStarted = resolve;
     });
     let finish!: () => void;
     const bodyReady = new Promise<void>((resolve) => {
@@ -446,7 +446,7 @@ describe("dataset metadata request sharing", () => {
     const repoId = makeLocalRepoId("/tmp/shared-info-" + crypto.randomUUID());
     globalThis.fetch = (async () => {
       calls++;
-      started();
+      markFetchStarted();
       return new Response(
         new ReadableStream({
           async start(controller) {
@@ -468,7 +468,7 @@ describe("dataset metadata request sharing", () => {
     try {
       const first = getDatasetVersionAndInfo(repoId);
       const second = getDatasetVersionAndInfo(repoId);
-      await requestStarted;
+      await fetchStarted;
       expect(calls).toBe(1);
       finish();
       const [a, b] = await Promise.all([first, second]);

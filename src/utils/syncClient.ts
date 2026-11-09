@@ -6,9 +6,10 @@
  * hold far more on the Hub than locally, and nobody should trigger a
  * hundred-gigabyte download from a single click.
  *
- * Both steps take a `SyncTarget`: a whole org (`{ source }`) or one dataset
- * (`{ repo: "owner/name" }`). They are the same request otherwise, so they stay
- * one code path rather than two that drift.
+ * Both steps accept either a plain org string or a `SyncTarget`. The viewer
+ * still has old string call sites, while the homepage's repo fetch panel uses
+ * the explicit object form, so the client keeps both shapes on the same code
+ * path rather than forcing a simultaneous call-site rewrite.
  */
 
 import { tStandalone } from "@/i18n/standalone";
@@ -17,17 +18,17 @@ import { consumeResponseLines } from "@/utils/responseLines";
 const SYNC_URL = "/api/local-datasets/sync";
 
 /**
- * Sync is switched off (2026-09-01, by decision). The flag that actually
- * enforces it lives in `src/app/api/local-datasets/sync/route.ts`; this one
- * exists so the UI can disable its entry points rather than offer a button
- * whose only possible outcome is a 503.
+ * Full-dataset sync is switched off (2026-09-01, by decision). The flag that
+ * actually enforces it lives in `src/app/api/local-datasets/sync/route.ts`;
+ * this one exists so the UI can disable full-download entry points rather than
+ * offer a button whose only possible outcome is a 503. Workbench's
+ * `metadataOnly` refresh remains available.
  *
  * The corpus moved to `TacVerse/{merged,raw,failed,released,in-processing}/…`,
  * while `scripts/sync_hf_dataset.py:repo_target()` writes to
  * `<root>/<org>/<name>` — and `TacVerse` is *also* the Hugging Face org slug.
- * A sync would therefore recreate the old paths beside the new ones and
- * re-fetch the corpus. Re-enable both flags only together with a fix to that
- * layout.
+ * `stats_repo_target()` protects the metadata-only path, while the engine-side
+ * downloader keeps its bucket-aware target before full sync is re-enabled.
  */
 export const SYNC_DISABLED = true;
 export const SYNC_DISABLED_REASON =
@@ -35,6 +36,12 @@ export const SYNC_DISABLED_REASON =
 
 /** A whole Hugging Face org, or a single `owner/name` dataset. */
 export type SyncTarget = { source: string } | { repo: string };
+
+type SyncTargetInput = string | SyncTarget;
+
+function normalizeTarget(target: SyncTargetInput): SyncTarget {
+  return typeof target === "string" ? { source: target } : target;
+}
 
 /** Size and file count for one repo — only the `{ repo }` target reports it. */
 export type SyncRepoDetail = {
@@ -76,6 +83,8 @@ export type SyncProgress = {
   filesDone?: number;
   filesTotal?: number;
   bytes?: number;
+  /** Estimated transfer rate in bytes per second for the current repository. */
+  bytesPerSecond?: number;
   endpoint?: string;
   org?: string;
 };
@@ -90,18 +99,32 @@ export type SyncResult = {
   skipped: number;
   failed: { repo: string; error: string }[];
   listOnly: boolean;
+  archivedRepos?: number;
+  archivedMetaSnapshots?: number;
+  archivedFiles?: number;
+  archiveFailures?: Array<{
+    scope: string;
+    repo?: string;
+    path?: string;
+    error: string;
+  }>;
   details?: SyncRepoDetail[];
 };
 
 /** What the sync would pull, without pulling it. */
 export async function listSyncCandidates(
-  target: SyncTarget,
+  target: SyncTargetInput,
   signal?: AbortSignal,
+  options: { endpoint?: string; token?: string } = {},
 ): Promise<SyncListing> {
   const response = await fetch(SYNC_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(target),
+    body: JSON.stringify({
+      ...normalizeTarget(target),
+      ...(options.endpoint ? { endpoint: options.endpoint } : {}),
+      ...(options.token ? { token: options.token } : {}),
+    }),
     signal,
   });
   const payload = await response.json().catch(() => null);
@@ -120,15 +143,34 @@ export async function listSyncCandidates(
  * cannot see through.
  */
 export async function runSync(
-  target: SyncTarget,
+  target: SyncTargetInput,
   onProgress: (progress: SyncProgress) => void,
-  options: { signal?: AbortSignal; force?: boolean } = {},
+  options: {
+    signal?: AbortSignal;
+    force?: boolean;
+    metadataOnly?: boolean;
+    endpoint?: string;
+    token?: string;
+  } = {},
 ): Promise<SyncResult> {
-  const { signal, force = false } = options;
+  const {
+    signal,
+    force = false,
+    metadataOnly = false,
+    endpoint,
+    token,
+  } = options;
   const response = await fetch(SYNC_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...target, confirm: true, force }),
+    body: JSON.stringify({
+      ...normalizeTarget(target),
+      confirm: true,
+      force,
+      metadataOnly,
+      ...(endpoint ? { endpoint } : {}),
+      ...(token ? { token } : {}),
+    }),
     signal,
   });
 

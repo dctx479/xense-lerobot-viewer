@@ -1,3 +1,4 @@
+import { isCalendarDay } from "@/utils/calendarTime";
 /**
  * Derived, read-only facets for browsing the corpus — the pure half.
  *
@@ -130,22 +131,17 @@ export function bucketOf(relativePath: string): CorpusBucket | null {
  * `xtac-umi-g1-install-wire-harness-260915` -> `2026-09-15`.
  */
 export function dateFromName(name: string): string | null {
-  const m = /-(?:(\d{2})(\d{2})(\d{2})|(\d{2})(\d{2}))$/.exec(name);
-  if (!m) return null;
-  const year = m[1] ? 2000 + Number(m[1]) : 2026;
-  const mm = m[1] ? m[2] : m[4];
-  const dd = m[1] ? m[3] : m[5];
-  const month = Number(mm);
-  const day = Number(dd);
-  const candidate = new Date(Date.UTC(year, month - 1, day));
-  if (
-    candidate.getUTCFullYear() !== year ||
-    candidate.getUTCMonth() !== month - 1 ||
-    candidate.getUTCDate() !== day
-  ) {
-    return null;
-  }
-  return `${year}-${mm}-${dd}`;
+  const match = /-(?:(\d{2})(\d{2})(\d{2})|(\d{2})(\d{2}))[A-Za-z]*$/u.exec(
+    name,
+  );
+  if (!match) return null;
+  const year = match[1] ? 2000 + Number(match[1]) : 2026;
+  const candidate = [
+    year,
+    match[1] ? match[2] : match[4],
+    match[1] ? match[3] : match[5],
+  ].join("-");
+  return isCalendarDay(candidate) ? candidate : null;
 }
 
 /**

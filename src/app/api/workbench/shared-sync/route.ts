@@ -1,0 +1,464 @@
+import type { NextRequest } from "next/server";
+import { resolveLocalDatasetRoot } from "@/lib/local-datasets-discovery";
+import { WorkbenchConfigurationConflictError } from "@/lib/workbench-configuration-store";
+import { WorkbenchRewardRulesConflictError } from "@/lib/workbench-reward-store";
+import { resolveHfToken, tokenForPython } from "@/lib/hf-token-store";
+import { isSameOriginRequest, noStoreHeaders } from "@/lib/request-security";
+import {
+  WorkbenchSharedHubConflictError,
+  runWorkbenchSharedHub,
+  type WorkbenchSharedHubReadResult,
+} from "@/lib/workbench-shared-hub";
+import {
+  WORKBENCH_SHARED_CONFIG_KINDS,
+  WORKBENCH_SHARED_REPO_ID,
+  WORKBENCH_SHARED_REPO_URL,
+  applyRemoteWorkbenchSharedConfig,
+  digestWorkbenchSharedValue,
+  listPendingWorkbenchSharedEvents,
+  markWorkbenchSharedEventsSent,
+  migrateLegacyWorkbenchSharedConfig,
+  normalizeWorkbenchSharedOrg,
+  parseWorkbenchSharedConfig,
+  readLocalWorkbenchSharedConfigs,
+  readWorkbenchSharedSyncMetadata,
+  readWorkbenchSharedSyncBaseline,
+  resolveWorkbenchSharedConfig,
+  serializeWorkbenchSharedValue,
+  workbenchSharedConfigPath,
+  writeWorkbenchSharedSyncMetadata,
+  writeWorkbenchSharedSyncBaseline,
+  type WorkbenchSharedConfigDocument,
+  type WorkbenchSharedConfigKind,
+} from "@/lib/workbench-shared-sync";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const MAX_SYNC_ATTEMPTS = 3;
+const syncQueues = new Map<string, Promise<void>>();
+
+function json(payload: unknown, status = 200): Response {
+  return Response.json(payload, {
+    status,
+    headers: noStoreHeaders(),
+  });
+}
+
+function organizationFromRequest(request: Request): string {
+  return normalizeWorkbenchSharedOrg(
+    new URL(request.url).searchParams.get("org"),
+  );
+}
+
+function configTimestamps(
+  configs: Record<WorkbenchSharedConfigKind, WorkbenchSharedConfigDocument>,
+): Record<WorkbenchSharedConfigKind, string> {
+  return Object.fromEntries(
+    WORKBENCH_SHARED_CONFIG_KINDS.map((kind) => [
+      kind,
+      configs[kind].updatedAt,
+    ]),
+  ) as Record<WorkbenchSharedConfigKind, string>;
+}
+
+async function statusPayload(
+  org: string,
+  root: string,
+  extra: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> {
+  const [configs, pending, metadata, credential] = await Promise.all([
+    readLocalWorkbenchSharedConfigs(org, root),
+    listPendingWorkbenchSharedEvents(root),
+    readWorkbenchSharedSyncMetadata(root),
+    resolveHfToken(root).catch(() => ({
+      token: null,
+      source: "none" as const,
+    })),
+  ]);
+  return {
+    ...metadata,
+    repoId: WORKBENCH_SHARED_REPO_ID,
+    repoUrl: WORKBENCH_SHARED_REPO_URL,
+    public: true,
+    organization: org,
+    tokenPresent: Boolean(credential.token),
+    tokenSource: credential.source,
+    pendingEvents: pending.filter((item) => item.event.org === org).length,
+    configUpdatedAt: configTimestamps(configs),
+    privacy: {
+      personnelEmailsPublished: true,
+      runLogsPublished: true,
+      excluded: "Authentication credentials such as HF tokens and passwords",
+    },
+    ...extra,
+  };
+}
+
+function remoteDocuments(
+  org: string,
+  read: WorkbenchSharedHubReadResult,
+): Record<WorkbenchSharedConfigKind, WorkbenchSharedConfigDocument | null> {
+  const configurationPath = workbenchSharedConfigPath(org, "configuration");
+  const configurationRaw = read.files[configurationPath];
+  const configuration =
+    configurationRaw === null || configurationRaw === undefined
+      ? migrateLegacyWorkbenchSharedConfig(
+          org,
+          read.files[`configs/${org}/workstation-mappings.json`],
+          read.files[`configs/${org}/personnel-mapping.json`],
+        )
+      : parseWorkbenchSharedConfig(configurationRaw, "configuration", org);
+  const rewardPath = workbenchSharedConfigPath(org, "reward-rules");
+  const rewardRaw = read.files[rewardPath];
+  return {
+    configuration,
+    "reward-rules":
+      rewardRaw === null || rewardRaw === undefined
+        ? null
+        : parseWorkbenchSharedConfig(rewardRaw, "reward-rules", org),
+  };
+}
+
+async function readRemote(
+  org: string,
+  token: string | null,
+  useDefaultAuth: boolean,
+): Promise<{
+  read: WorkbenchSharedHubReadResult;
+  documents: Record<
+    WorkbenchSharedConfigKind,
+    WorkbenchSharedConfigDocument | null
+  >;
+}> {
+  const result = await runWorkbenchSharedHub(
+    {
+      action: "read",
+      repoId: WORKBENCH_SHARED_REPO_ID,
+      paths: [
+        ...WORKBENCH_SHARED_CONFIG_KINDS.map((kind) =>
+          workbenchSharedConfigPath(org, kind),
+        ),
+        `configs/${org}/workstation-mappings.json`,
+        `configs/${org}/personnel-mapping.json`,
+      ],
+    },
+    token,
+    useDefaultAuth,
+  );
+  if (result.action !== "read") {
+    throw new Error("Unexpected Hugging Face shared-state response.");
+  }
+  return { read: result, documents: remoteDocuments(org, result) };
+}
+
+export async function GET(request: NextRequest): Promise<Response> {
+  try {
+    const org = organizationFromRequest(request);
+    const root = resolveLocalDatasetRoot();
+    return json(await statusPayload(org, root));
+  } catch (error: unknown) {
+    return json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unable to read Workbench shared sync status.",
+      },
+      400,
+    );
+  }
+}
+
+export async function POST(request: NextRequest): Promise<Response> {
+  const key = resolveLocalDatasetRoot();
+  const previous = syncQueues.get(key) ?? Promise.resolve();
+  let release = () => {};
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.catch(() => undefined).then(() => pending);
+  syncQueues.set(key, queued);
+  await previous.catch(() => undefined);
+  try {
+    return await performSync(request);
+  } finally {
+    release();
+    if (syncQueues.get(key) === queued) syncQueues.delete(key);
+  }
+}
+
+async function performSync(request: NextRequest): Promise<Response> {
+  if (!isSameOriginRequest(request)) {
+    return json(
+      { error: "Cross-origin Workbench shared sync is not allowed." },
+      403,
+    );
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Request body must be JSON." }, 400);
+  }
+
+  try {
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return json({ error: "Request body must be an object." }, 400);
+    }
+    const org = normalizeWorkbenchSharedOrg((body as { org?: unknown }).org);
+    const choice = (body as { conflictPreference?: unknown })
+      .conflictPreference;
+    if (choice !== undefined && choice !== "local" && choice !== "remote") {
+      return json({ error: "Invalid conflict preference." }, 400);
+    }
+    const reviewed = (body as { reviewed?: Record<string, string> }).reviewed;
+    const root = resolveLocalDatasetRoot();
+    const credential = await resolveHfToken(root);
+    const token = credential.token;
+    const pythonToken = tokenForPython(credential);
+    const useDefaultAuth = credential.source === "cache";
+    let lastConflict: Error | null = null;
+
+    for (let attempt = 1; attempt <= MAX_SYNC_ATTEMPTS; attempt += 1) {
+      const [{ read, documents: remote }, local, allPending, base] =
+        await Promise.all([
+          readRemote(org, pythonToken, useDefaultAuth),
+          readLocalWorkbenchSharedConfigs(org, root),
+          listPendingWorkbenchSharedEvents(root),
+          readWorkbenchSharedSyncBaseline(org, root),
+        ]);
+      const fingerprints = Object.fromEntries(
+        WORKBENCH_SHARED_CONFIG_KINDS.map((kind) => [
+          kind,
+          digestWorkbenchSharedValue({
+            local: local[kind],
+            remote: remote[kind],
+            base: base[kind],
+          }),
+        ]),
+      );
+      const preference =
+        choice &&
+        WORKBENCH_SHARED_CONFIG_KINDS.every(
+          (kind) => reviewed?.[kind] === fingerprints[kind],
+        )
+          ? choice
+          : undefined;
+      const resolutions = WORKBENCH_SHARED_CONFIG_KINDS.map((kind) =>
+        resolveWorkbenchSharedConfig(
+          local[kind],
+          remote[kind],
+          base[kind],
+          preference,
+        ),
+      );
+      if (resolutions.some((resolution) => resolution.conflict)) {
+        return json(
+          {
+            code: "WORKBENCH_SHARED_MERGE_CONFLICT",
+            error:
+              "Both sides changed the same fields. Choose which values to keep for conflicting fields.",
+            conflicts: resolutions
+              .filter((resolution) => resolution.conflict)
+              .map((resolution) => ({
+                kind: resolution.kind,
+                paths: resolution.conflictPaths,
+              })),
+            reviewed: fingerprints,
+          },
+          409,
+        );
+      }
+
+      const pulled: WorkbenchSharedConfigKind[] = [];
+      const desired = Object.fromEntries(
+        resolutions.map((resolution) => [resolution.kind, resolution.document]),
+      ) as Record<WorkbenchSharedConfigKind, WorkbenchSharedConfigDocument>;
+      const finishLocal = async (published: boolean) => {
+        const baseline = { ...base };
+        for (const resolution of resolutions) {
+          const kind = resolution.kind;
+          const current = await readLocalWorkbenchSharedConfigs(org, root);
+          if (
+            digestWorkbenchSharedValue(current[kind]) !==
+            digestWorkbenchSharedValue(local[kind])
+          )
+            continue;
+          if (
+            digestWorkbenchSharedValue(current[kind]) !==
+            digestWorkbenchSharedValue(desired[kind])
+          ) {
+            try {
+              await applyRemoteWorkbenchSharedConfig(
+                desired[kind],
+                root,
+                local[kind],
+              );
+            } catch (error) {
+              if (
+                error instanceof WorkbenchConfigurationConflictError ||
+                error instanceof WorkbenchRewardRulesConflictError
+              )
+                continue;
+              throw error;
+            }
+            pulled.push(kind);
+          }
+          baseline[kind] = published ? desired[kind] : remote[kind];
+        }
+        await writeWorkbenchSharedSyncBaseline(org, baseline, root);
+      };
+      const configFiles = WORKBENCH_SHARED_CONFIG_KINDS.flatMap((kind) => {
+        const remoteDocument = remote[kind];
+        if (
+          remoteDocument &&
+          digestWorkbenchSharedValue(remoteDocument) ===
+            digestWorkbenchSharedValue(desired[kind])
+        ) {
+          return [];
+        }
+        return [
+          {
+            path: workbenchSharedConfigPath(org, kind),
+            content: serializeWorkbenchSharedValue(desired[kind]),
+          },
+        ];
+      });
+      const pending = allPending.filter((item) => item.event.org === org);
+      const eventFiles = pending.map((item) => ({
+        path: item.remotePath,
+        content: item.content,
+      }));
+      const files = [...configFiles, ...eventFiles];
+      const conflicts = resolutions
+        .filter((resolution) => resolution.conflict)
+        .map((resolution) => resolution.kind);
+
+      if (!token) {
+        await finishLocal(false);
+        const metadata = await writeWorkbenchSharedSyncMetadata(
+          {
+            lastSyncAt: new Date().toISOString(),
+            lastCommit: read.head,
+            lastCommitUrl: WORKBENCH_SHARED_REPO_URL + "/commit/" + read.head,
+          },
+          root,
+        );
+        return json(
+          await statusPayload(org, root, {
+            ...metadata,
+            remoteHead: read.head,
+            remoteUsername: read.username,
+            pulled,
+            published: [],
+            conflicts,
+            pendingConfigs: configFiles.length,
+            readOnly: true,
+            message:
+              files.length === 0
+                ? "Shared state is current (public read-only mode)."
+                : "Remote changes were pulled; a write-enabled HF token is required to publish local changes.",
+          }),
+        );
+      }
+
+      if (files.length === 0) {
+        await finishLocal(true);
+        const metadata = await writeWorkbenchSharedSyncMetadata(
+          {
+            lastSyncAt: new Date().toISOString(),
+            lastCommit: read.head,
+            lastCommitUrl: WORKBENCH_SHARED_REPO_URL + "/commit/" + read.head,
+          },
+          root,
+        );
+        return json(
+          await statusPayload(org, root, {
+            ...metadata,
+            remoteHead: read.head,
+            remoteUsername: read.username,
+            pulled,
+            published: [],
+            conflicts,
+            pendingConfigs: 0,
+            readOnly: false,
+            message: "Shared state is already up to date.",
+          }),
+        );
+      }
+
+      try {
+        const committed = await runWorkbenchSharedHub(
+          {
+            action: "commit",
+            repoId: WORKBENCH_SHARED_REPO_ID,
+            expectedHead: read.head,
+            message: "sync(workbench): update " + org + " shared state",
+            files,
+          },
+          pythonToken,
+          useDefaultAuth,
+        );
+        if (committed.action !== "commit") {
+          throw new Error("Unexpected Hugging Face commit response.");
+        }
+        await markWorkbenchSharedEventsSent(pending, root);
+        await finishLocal(true);
+        const metadata = await writeWorkbenchSharedSyncMetadata(
+          {
+            lastSyncAt: new Date().toISOString(),
+            lastCommit: committed.commit || read.head,
+            lastCommitUrl:
+              committed.commitUrl ||
+              WORKBENCH_SHARED_REPO_URL +
+                "/commit/" +
+                (committed.commit || read.head),
+          },
+          root,
+        );
+        return json(
+          await statusPayload(org, root, {
+            ...metadata,
+            remoteHead: committed.commit || read.head,
+            remoteUsername: committed.username,
+            pulled,
+            published: configFiles.map((file) => file.path),
+            publishedEvents: pending.length,
+            conflicts,
+            pendingConfigs: 0,
+            readOnly: false,
+            message:
+              "Shared state synchronized: " +
+              String(configFiles.length) +
+              " config file(s), " +
+              String(pending.length) +
+              " event(s) published.",
+          }),
+        );
+      } catch (error: unknown) {
+        if (error instanceof WorkbenchSharedHubConflictError) {
+          lastConflict = error;
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw (
+      lastConflict ??
+      new Error("The shared repository changed repeatedly during sync.")
+    );
+  } catch (error: unknown) {
+    return json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unable to synchronize Workbench shared state.",
+      },
+      error instanceof WorkbenchSharedHubConflictError ? 409 : 502,
+    );
+  }
+}

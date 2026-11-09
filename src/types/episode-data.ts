@@ -84,13 +84,6 @@ export type EpisodeData = {
   duration: number;
   task?: string;
   /**
-   * v3.1 language atoms read from `language_persistent` and `language_events`
-   * (lerobot#3467). Empty when the dataset hasn't been annotated yet.
-   * The annotations panel uses this to seed its editor state when no
-   * annotation backend is running.
-   */
-  languageAtoms?: import("@/types/language.types").LanguageAtom[];
-  /**
    * Sorted source-frame timestamps from the data parquet, in seconds. Used by
    * the annotations editor to snap atom timestamps to exact frame times —
    * avoiding sub-frame drift from a throttled `currentTime` and keeping

@@ -27,6 +27,22 @@ export type {
 // Video types
 export type { VideoInfo, AdjacentEpisodeVideos } from "./video.types";
 
+// Workbench personnel types
+export type {
+  WorkbenchPerson,
+  WorkbenchPersonnelScheduleMember,
+  WorkbenchPersonnelScheduleAssignment,
+  WorkbenchPersonnelSchedules,
+  WorkbenchPersonnelOrganizationConfig,
+  WorkbenchPersonnelConfig,
+  WorkbenchEffectivePersonnelSchedule,
+  WorkbenchPersonnelRollupRow,
+  WorkbenchPersonnelUnattributedWorkstation,
+  WorkbenchPersonnelRollup,
+} from "./workbench-personnel.types";
+
+export * from "./workbench-configuration.types";
+
 // Chart types
 export type {
   ChartDataPoint,

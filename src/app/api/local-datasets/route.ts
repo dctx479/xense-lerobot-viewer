@@ -14,5 +14,7 @@ export async function GET(): Promise<Response> {
     data.errors.length > 0 && data.datasets.length === 0 && !data.root
       ? 500
       : 200;
-  return Response.json(data, { status });
+  return Response.json(serializeLocalDatasetsResponseForClient(data), {
+    status,
+  });
 }

@@ -41,8 +41,8 @@ body {
   /* Local fonts only: starting the viewer must not download Google Fonts.
      Keep explicit CJK fallbacks so the Chinese UI stays sans-serif. */
   font-family:
-    Inter, Arial, "Noto Sans SC", "PingFang SC", "Hiragino Sans GB",
-    "Microsoft YaHei", system-ui, sans-serif;
+    var(--font-inter), Inter, Arial, "Noto Sans SC", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
   background: var(--bg);
   color: var(--text-primary);
   font-feature-settings:

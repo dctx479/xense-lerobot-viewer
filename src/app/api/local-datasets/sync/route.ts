@@ -4,6 +4,20 @@ import path from "node:path";
 import { createBackgroundProcessResponse } from "@/lib/background-process-response";
 import { resolveLocalDatasetRoot } from "@/lib/local-datasets-discovery";
 import {
+  normalizeHfEndpoint,
+  resolveHfCatalogEndpoint,
+  resolveHfSyncEndpoint,
+} from "@/lib/hf-endpoints";
+import { resolveHfToken, tokenForPython } from "@/lib/hf-token-store";
+import {
+  activeDatasetWrite,
+  beginDatasetWrite,
+  finishDatasetWrite,
+  type DatasetWriteLease,
+} from "@/lib/dataset-write-lock";
+import { addHfMirrorProxyBypass } from "@/lib/proxy-bypass";
+import { normalizeHfToken } from "@/utils/hfValidation";
+import {
   PythonUnavailableError,
   pythonSpawnEnv,
   resolvePython,
@@ -17,7 +31,8 @@ export const dynamic = "force-dynamic";
  * Manual Hugging Face sync — the viewer's only outbound network path.
  *
  * Browsing stays entirely local; this runs when someone presses Sync and
- * nowhere else. Transfers go through hf-mirror (see `scripts/sync_hf_dataset.py`).
+ * nowhere else. Bulk transfers go through hf-mirror (see `scripts/sync_hf_dataset.py`);
+ * metadata refreshes reuse the sync endpoint unless `HF_CATALOG_ENDPOINT` overrides it.
  *
  * Two targets, each in two steps:
  *   POST { source }                → list a whole org, transfer nothing
@@ -52,11 +67,12 @@ const REPO_PATTERN = new RegExp(
   `^${SOURCE_PATTERN.source.slice(1, -1)}/${SOURCE_PATTERN.source.slice(1, -1)}$`,
 );
 
-const HF_MIRROR = "https://hf-mirror.com";
+const HF_SYNC_ENDPOINT = resolveHfSyncEndpoint();
+const HF_CATALOG_ENDPOINT = resolveHfCatalogEndpoint();
 const LIST_TIMEOUT_MS = 120_000;
 
 /**
- * Sync is switched off (2026-09-01, by decision).
+ * Full-dataset sync is switched off (2026-09-01, by decision).
  *
  * The local corpus was reorganised from sibling directories (`TacVerse`,
  * `TacVerse-RAW`, `TacVerse-Failed`) into `TacVerse/{merged,raw,failed,
@@ -67,15 +83,14 @@ const LIST_TIMEOUT_MS = 120_000;
  * `TacVerse/merged/<name>` and re-fetch roughly 500 GB — silently, as a
  * duplication rather than an error.
  *
- * The machinery below is deliberately left intact. Re-enabling means fixing
- * `repo_target()` to target the right sub-directory — and `sync_fast.py` in
- * the engine's work tree, which documents itself as sharing that contract —
- * not just deleting this flag.
+ * `stats_repo_target()` keeps Workbench metadata in the direct TacVerse layout;
+ * the bucket-aware resolver remains reserved for full-dataset sync. Full downloads remain disabled until
+ * `sync_fast.py` in the engine's work tree adopts the same contract.
  */
 // Annotated `boolean` rather than inferred: a literal `true` narrows the type
 // and makes everything past the guard unreachable code to the compiler, which
 // is exactly the machinery we are deliberately keeping compilable.
-const SYNC_DISABLED: boolean = true;
+const FULL_SYNC_DISABLED: boolean = true;
 const SYNC_DISABLED_REASON =
   "Hugging Face sync is disabled. The local corpus moved to " +
   "TacVerse/{merged,raw,failed,released,in-processing}/…, and the " +
@@ -100,6 +115,15 @@ type SyncResult = {
   skipped: number;
   failed: { repo: string; error: string }[];
   listOnly: boolean;
+  archivedRepos?: number;
+  archivedMetaSnapshots?: number;
+  archivedFiles?: number;
+  archiveFailures?: Array<{
+    scope: string;
+    repo?: string;
+    path?: string;
+    error: string;
+  }>;
   /** Per-repo size/file count — only on the single-repo path. */
   details?: SyncRepoDetail[];
 };
@@ -112,22 +136,38 @@ type SyncRepoDetail = {
   error: string | null;
 };
 
-function scriptPath(): string {
-  return path.join(process.cwd(), "scripts", "sync_hf_dataset.py");
+function scriptPath(scriptName: string): string {
+  return path.join(process.cwd(), "scripts", scriptName);
+}
+
+function syncScriptPath(): string {
+  return scriptPath("sync_hf_dataset.py");
+}
+
+function statsScriptPath(): string {
+  return scriptPath("sync_hf_dataset_stats.py");
 }
 
 function spawnScript(
+  scriptFile: string,
   pythonBin: string,
   args: string[],
+  endpoint: string,
+  token: string | null,
 ): ChildProcessWithoutNullStreams {
-  return spawn(pythonBin, [scriptPath(), ...args], {
-    cwd: process.cwd(),
-    env: {
+  const env = addHfMirrorProxyBypass(
+    {
       ...pythonSpawnEnv(),
       // Belt and braces: the script also defaults this, but setting it here
       // means the mirror holds even if the script is run through a wrapper.
-      HF_ENDPOINT: process.env.HF_ENDPOINT || HF_MIRROR,
-    },
+      HF_ENDPOINT: endpoint,
+      ...(token ? { HF_TOKEN: token } : {}),
+    } as NodeJS.ProcessEnv,
+    endpoint,
+  );
+  return spawn(pythonBin, [scriptFile, ...args], {
+    cwd: process.cwd(),
+    env,
   });
 }
 
@@ -142,8 +182,11 @@ function syncPython(): Promise<ResolvedPython> {
 
 /** Run the script to completion, returning its parsed `result` event. */
 async function runToCompletion(
+  scriptFile: string,
   args: string[],
   timeoutMs: number,
+  endpoint: string,
+  token: string | null,
 ): Promise<{ result: SyncResult | null; error: string | null }> {
   let python: ResolvedPython;
   try {
@@ -161,7 +204,7 @@ async function runToCompletion(
   return new Promise((resolve) => {
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawnScript(python.bin, args);
+      child = spawnScript(scriptFile, python.bin, args, endpoint, token);
     } catch (err) {
       resolve({ result: null, error: `Failed to launch Python: ${err}` });
       return;
@@ -216,12 +259,41 @@ async function runToCompletion(
   });
 }
 
+/** Confirmed syncs own their write lease until the child process exits. */
+function streamDownload(
+  scriptFile: string,
+  args: string[],
+  pythonBin: string,
+  endpoint: string,
+  token: string | null,
+  writeLease: DatasetWriteLease,
+  signal: AbortSignal,
+): Response {
+  const lease = activeSync;
+  return createBackgroundProcessResponse(
+    () => spawnScript(scriptFile, pythonBin, args, endpoint, token),
+    () => {
+      finishDatasetWrite(writeLease);
+      if (activeSync === lease) activeSync = null;
+    },
+    signal,
+  );
+}
+
 /**
  * The requested target as script arguments.
  *
  * `label` is what the single-run lock and its 409 report, so a blocked caller
  * is told which dataset is holding it rather than just which org.
  */
+function writeKeyForTarget(
+  root: string,
+  target: { label: string; args: string[] },
+): string {
+  const targetPath = path.resolve(root, ...target.label.split("/"));
+  return target.args[0] === "--org" ? `${targetPath}/*` : targetPath;
+}
+
 function resolveTarget(body: {
   source?: unknown;
   repo?: unknown;
@@ -246,22 +318,53 @@ function resolveTarget(body: {
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
-  // Refuse before parsing anything: the listing pass transfers no data, but a
-  // caller who gets a listing back reasonably expects the confirm step to work.
-  if (SYNC_DISABLED) {
-    return Response.json({ error: SYNC_DISABLED_REASON }, { status: 503 });
-  }
-
   let body: {
     source?: unknown;
     repo?: unknown;
     confirm?: unknown;
     force?: unknown;
+    metadataOnly?: unknown;
+    endpoint?: unknown;
+    token?: unknown;
   };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: "Expected a JSON body." }, { status: 400 });
+  }
+
+  // Workbench's metadata-only path transfers the complete meta/** snapshot
+  // and uses the direct TacVerse target resolver. Keep every full-dataset
+  // entry point
+  // closed until the engine-side downloader shares the bucket layout contract.
+  if (FULL_SYNC_DISABLED && body.metadataOnly !== true) {
+    return Response.json({ error: SYNC_DISABLED_REASON }, { status: 503 });
+  }
+
+  let endpoint =
+    body.metadataOnly === true ? HF_CATALOG_ENDPOINT : HF_SYNC_ENDPOINT;
+  if (body.endpoint !== undefined) {
+    const selectedEndpoint = normalizeHfEndpoint(body.endpoint);
+    if (!selectedEndpoint) {
+      return Response.json(
+        {
+          error:
+            "`endpoint` must be https://hf-mirror.com or https://huggingface.co.",
+        },
+        { status: 400 },
+      );
+    }
+    endpoint = selectedEndpoint;
+  }
+  let requestedToken: string | null = null;
+  if (body.token !== undefined) {
+    requestedToken = normalizeHfToken(body.token);
+    if (!requestedToken) {
+      return Response.json(
+        { error: "`token` must be a non-empty Hugging Face token." },
+        { status: 400 },
+      );
+    }
   }
 
   const target = resolveTarget(body);
@@ -276,20 +379,90 @@ export async function POST(request: NextRequest): Promise<Response> {
     return Response.json({ error: String(err) }, { status: 500 });
   }
 
-  if (activeSync) {
+  const writeKey = writeKeyForTarget(root, target);
+  const activeWrite = activeDatasetWrite(writeKey);
+  if (activeSync || activeWrite) {
     return Response.json(
-      { error: `A sync of ${activeSync.source} is already running.` },
+      {
+        error: `A dataset write of ${activeSync?.source ?? activeWrite?.label} is already running.`,
+      },
       { status: 409 },
     );
   }
 
+  let token: string | null = null;
+  try {
+    if (requestedToken) {
+      token = requestedToken;
+    } else {
+      token = tokenForPython(await resolveHfToken(root));
+    }
+  } catch {
+    token = null;
+  }
+
   const baseArgs = [...target.args, "--root", root];
+
+  if (body.metadataOnly === true) {
+    if (target.args[0] !== "--org") {
+      return Response.json(
+        { error: "Metadata-only sync requires an organization target." },
+        { status: 400 },
+      );
+    }
+
+    let python: ResolvedPython;
+    try {
+      python = await syncPython();
+    } catch (err) {
+      return Response.json(
+        {
+          error:
+            err instanceof PythonUnavailableError ? err.message : String(err),
+        },
+        { status: 502 },
+      );
+    }
+
+    if (request.signal.aborted) return new Response(null, { status: 499 });
+    const running = currentSync();
+    if (running) {
+      return Response.json(
+        { error: "A sync of " + running.source + " is already running." },
+        { status: 409 },
+      );
+    }
+    const writeLease = beginDatasetWrite(
+      "metadata-sync",
+      target.label,
+      writeKey,
+    );
+    if (!writeLease) {
+      return Response.json(
+        { error: "Another dataset write started before this sync." },
+        { status: 409 },
+      );
+    }
+    activeSync = { source: target.label, startedAt: Date.now() };
+    return streamDownload(
+      statsScriptPath(),
+      body.force === true ? [...baseArgs, "--force"] : baseArgs,
+      python.bin,
+      endpoint,
+      token,
+      writeLease,
+      request.signal,
+    );
+  }
 
   // Listing pass — cheap, transfers nothing, and always runs first.
   if (body.confirm !== true) {
     const { result, error } = await runToCompletion(
+      syncScriptPath(),
       [...baseArgs, "--list-only"],
       LIST_TIMEOUT_MS,
+      HF_SYNC_ENDPOINT,
+      token,
     );
     if (!result) {
       return Response.json(
@@ -326,26 +499,29 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
-  // Python resolution awaited above; another request may have acquired the lock.
   if (request.signal.aborted) return new Response(null, { status: 499 });
   const running = currentSync();
   if (running) {
     return Response.json(
-      { error: `A sync of ${running.source} is already running.` },
+      { error: "A sync of " + running.source + " is already running." },
       { status: 409 },
     );
   }
-  const lease = { source: target.label, startedAt: Date.now() };
-  activeSync = lease;
-  return createBackgroundProcessResponse(
-    () =>
-      spawnScript(
-        python.bin,
-        body.force === true ? [...baseArgs, "--force"] : baseArgs,
-      ),
-    () => {
-      if (activeSync === lease) activeSync = null;
-    },
+  const writeLease = beginDatasetWrite("metadata-sync", target.label, writeKey);
+  if (!writeLease) {
+    return Response.json(
+      { error: "Another dataset write started before this sync." },
+      { status: 409 },
+    );
+  }
+  activeSync = { source: target.label, startedAt: Date.now() };
+  return streamDownload(
+    syncScriptPath(),
+    body.force === true ? [...baseArgs, "--force"] : baseArgs,
+    python.bin,
+    endpoint,
+    token,
+    writeLease,
     request.signal,
   );
 }

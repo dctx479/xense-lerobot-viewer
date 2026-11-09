@@ -1,10 +1,34 @@
-/** Fixed UTC+8 timestamps, independent of the server/browser timezone. */
-export const REVIEW_TIME_ZONE = "Asia/Shanghai";
+import {
+  CALENDAR_TIME_ZONE,
+  calendarTimestamp,
+  calendarDateRange,
+  calendarDayBounds,
+} from "@/utils/calendarTime";
+
+/** Compatibility names; all calendar rules live in calendarTime. */
+export const REVIEW_TIME_ZONE = CALENDAR_TIME_ZONE;
 
 export function reviewTimestamp(input: string | Date = new Date()): string {
-  const time = input instanceof Date ? input.getTime() : Date.parse(input);
-  if (!Number.isFinite(time)) throw new Error("Invalid review timestamp");
-  return new Date(time + 8 * 60 * 60 * 1000)
-    .toISOString()
-    .replace(/Z$/, "+08:00");
+  try {
+    return calendarTimestamp(input);
+  } catch {
+    throw new Error("Invalid review timestamp");
+  }
+}
+
+/** Calendar-day filters use the same UTC+8 boundary as the inspection records. */
+export function reviewDateRange(
+  preset: "today" | "last7days" | "all" = "today",
+  now: Date = new Date(),
+) {
+  return calendarDateRange(preset, now);
+}
+
+/** An inspection day is [00:00, next day 00:00) in fixed UTC+8. */
+export function reviewDayBounds(day: string) {
+  try {
+    return calendarDayBounds(day);
+  } catch {
+    throw new Error("Invalid review date");
+  }
 }

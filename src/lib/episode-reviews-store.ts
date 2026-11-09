@@ -93,6 +93,11 @@ async function readFile(target: string): Promise<ReviewCollectionFile> {
       return { version: 1, datasets: Object.create(null) };
     throw error;
   }
+  return parseReviewCollection(raw);
+}
+
+/** Shared by the store and read-only recursive statistics discovery. */
+export function parseReviewCollection(raw: unknown): ReviewCollectionFile {
   const input = raw as Partial<ReviewCollectionFile> | null;
   if (
     !input ||

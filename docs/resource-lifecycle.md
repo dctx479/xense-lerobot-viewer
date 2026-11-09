@@ -236,14 +236,27 @@ Device numbers are not compared across NFS clients. Release removes the link in
 one atomic operation before cleaning its owner directory; a crash before or after
 publication/removal leaves either no lock name or a complete, recoverable marker.
 A lost publication acknowledgement retains the marker instead of deleting its
-owner. A recognized v1 orphan is atomically renamed away before cleanup, so its
+owner. NFS may replay a successful symlink request and return EEXIST: when the
+existing link points to this acquisition's staged directory, the writer verifies
+the native lease and complete owner metadata and accepts its own publication.
+It must not reap its own owner and republish a dangling link. On publication
+failure, a failed owner metadata lookup alone never authorizes cleanup of an
+owner still referenced by the compatibility link; uncertain link lookups also
+preserve the staged owner for recovery. A recognized v1 orphan is atomically
+renamed away before cleanup, so its
 upgrade cannot strand an empty directory either. After acquiring the native
 lease, a writer opportunistically reaps unreferenced staging/retired directories
 whose UUID, owner protocol, token and native inode match; empty staging
 directories from the pre-owner crash window are also removed. Unknown contents,
+empty owner directories still referenced by the compatibility link,
 symlinked directories, malformed owners and foreign inode identities are
 preserved, and cleanup failures do not block a save. Commit checks verify the
 native inode and owner token/protocol/inode.
+The current acquisition also verifies its owner file inode. Cleanup stops if the
+native lease identity changes, including during release. All publication retry
+branches check the monotonic deadline; an EEXIST followed by an invisible link
+cannot retry indefinitely. Filesystem calls on a hard NFS mount can still block
+independently of this deadline.
 These checks detect observed ownership changes; they cannot fence noncooperating
 writers or guarantee behavior through a network partition. Waiting on legacy locks
 uses a monotonic clock, so a wall clock adjustment cannot extend the deadline.
@@ -269,5 +282,38 @@ creates neither a review file nor a synthetic backup. It refuses symlinked or
 non-file originals, active native leases, and nonempty/symlinked lock directories.
 It does not change review records,
 replay an unfinished mark or delete temporary files. Retry the manual mark afterward.
+
+A recognized relative owner link whose target directory is absent returns
+`REVIEW_LOCK_DANGLING`, independently of generic ownership failures. It is never
+automatically deleted: a missing lookup does not prove the old writer's native
+inode identity. Pause **all writers on every host**, wait for in-flight saves to
+finish, then run:
+
+    bun scripts/recover-review-lock.ts /absolute/browse/directory --dangling --no-writers
+
+This command acquires the native lease, accepts only the exact relative owner
+name with a valid UUID, backs up an existing regular review file, and rechecks
+the link inode, link target and absent owner before renaming the link to a unique
+`.lock.quarantined-<uuid>` sibling. The quarantined link is evidence; do not
+restore it while writers are running. Existing owner entries (including empty
+directories and dangling symlinks), malformed/outside links and I/O errors are
+refused. No review file means no synthetic backup is created. The script logs
+requested/completed/failed recovery events, backup and quarantine basenames,
+host and PID under `.xense-viewer/review-diagnostics/`. It never replays a mark
+or deletes unfinished temporary files.
+
+| Error code                | Meaning                                                        | Handling                                                                        |
+| ------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `REVIEW_LOCK_BUSY`        | Another native writer or unconfirmed publication until timeout | Retry later; do not remove locks                                                |
+| `REVIEW_LEGACY_LOCK`      | Empty or unknown legacy directory                              | Pause all legacy writers, then use empty-lock recovery only if empty            |
+| `REVIEW_LOCK_DANGLING`    | Recognized link points to an absent owner directory            | Pause all writers, then use dangling-lock recovery                              |
+| `REVIEW_LOCK_CHANGED`     | Native identity/lease or owner verification failed             | Verify the operation outcome, preserve evidence and investigate writers/storage |
+| `REVIEW_LOCK_UNAVAILABLE` | Invalid lock structure or unavailable native lock              | Check permissions, flock and filesystem support                                 |
+
+Lock failures carry structured codes in the API and diagnostic completion event.
+Ownership failures can also occur during cleanup after commit; the user message
+must not claim every such failure prevented a commit. Use operation evidence and
+the diagnostic `committed` flag to verify the result before issuing a new action.
+
 An offline NFS mount may still delay filesystem operations; a lock timeout must not
 be reported as a successful save or used to bypass the legacy writer boundary.

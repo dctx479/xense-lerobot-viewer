@@ -9,7 +9,10 @@ import {
   getDatasetVersionAndInfo,
   buildVersionedUrl,
 } from "@/utils/versionUtils";
-import { repoIdFromRouteParams } from "@/utils/datasetRoute";
+import {
+  getLocalDatasetFileBase,
+  repoIdFromRouteParams,
+} from "@/utils/datasetRoute";
 import { PADDING, CHART_CONFIG, EXCLUDED_COLUMNS } from "@/utils/constants";
 import {
   processChartDataGroups,
@@ -40,14 +43,48 @@ import {
   type SpatialTrajectoryData,
 } from "@/utils/spatialTrajectories";
 import type { VideoInfo, AdjacentEpisodeVideos } from "@/types";
-import { tStandalone } from "@/i18n/standalone";
+import type {
+  AggAlignment,
+  AggAutocorrelation,
+  AggVelocityStat,
+  CameraInfo,
+  ChartRow,
+  ColumnMinMax,
+  CrossEpisodeVarianceData,
+  DatasetDisplayInfo,
+  EpisodeData,
+  EpisodeFrameInfo,
+  EpisodeFramesData,
+  EpisodeLengthStats,
+  JerkyEpisode,
+  LowMovementEpisode,
+  SpeedDistEntry,
+} from "@/types/episode-data";
 import {
   parseTcpFrameConvention,
   unrecognizedTcpFrameConvention,
-  type TcpFrameConvention,
 } from "@/utils/taccapGripperTransforms";
 
-export type { SpatialTrajectoryData } from "@/utils/spatialTrajectories";
+export type {
+  AggAlignment,
+  AggAutocorrelation,
+  AggVelocityStat,
+  CameraInfo,
+  ChartRow,
+  ColumnMinMax,
+  CrossEpisodeVarianceData,
+  DatasetDisplayInfo,
+  EpisodeData,
+  EpisodeFrameInfo,
+  EpisodeFramesData,
+  EpisodeLengthHistogramBin,
+  EpisodeLengthInfo,
+  EpisodeLengthStats,
+  JerkyEpisode,
+  LowMovementEpisode,
+  SpeedDistEntry,
+  SpatialTrajectoryData,
+} from "@/types/episode-data";
 
 const SERIES_NAME_DELIMITER = CHART_CONFIG.SERIES_NAME_DELIMITER;
 const CHARTABLE_NUMERIC_DTYPES = new Set([
@@ -64,34 +101,6 @@ const CHARTABLE_NUMERIC_DTYPES = new Set([
   "uint64",
 ]);
 
-export type CameraInfo = { name: string; width: number; height: number };
-
-export type DatasetDisplayInfo = {
-  repoId: string;
-  total_frames: number;
-  total_episodes: number;
-  fps: number;
-  robot_type: string | null;
-  /** Left/right TCP axis convention from `info.json`; see `TcpFrameConvention`. */
-  tcp_frame_convention: TcpFrameConvention;
-  /** The raw value when `info.json` declares one we do not recognise. */
-  tcp_frame_convention_unrecognized: string | null;
-  /** False when `info.json` omits the key and the legacy default applies. */
-  tcp_frame_convention_declared: boolean;
-  codebase_version: string;
-  total_tasks: number;
-  dataset_size_mb: number;
-  cameras: CameraInfo[];
-};
-
-export type ChartRow = Record<string, number | Record<string, number>>;
-
-export type ColumnMinMax = {
-  column: string;
-  min: number;
-  max: number;
-};
-
 export function isChartableNumericFeature(feature: {
   dtype: string;
   shape: number[];
@@ -101,72 +110,6 @@ export function isChartableNumericFeature(feature: {
     feature.shape.length === 1
   );
 }
-
-export type EpisodeLengthInfo = {
-  episodeIndex: number;
-  lengthSeconds: number;
-  frames: number;
-};
-
-export type EpisodeLengthHistogramBin = {
-  binLabel: string;
-  count: number;
-};
-
-export type EpisodeLengthStats = {
-  shortestEpisodes: EpisodeLengthInfo[];
-  longestEpisodes: EpisodeLengthInfo[];
-  allEpisodeLengths: EpisodeLengthInfo[];
-  meanEpisodeLength: number;
-  medianEpisodeLength: number;
-  stdEpisodeLength: number;
-  episodeLengthHistogram: EpisodeLengthHistogramBin[];
-  /**
-   * Bin geometry for `episodeLengthHistogram`. Lets the client recover which
-   * episodes fall in each bin from `allEpisodeLengths` via `assignEpisodesToBins`,
-   * instead of the server shipping every episode index a second time.
-   */
-  episodeLengthHistogramBinning: HistogramBinning;
-};
-
-export type EpisodeFrameInfo = {
-  episodeIndex: number;
-  videoUrl: string;
-  firstFrameTime: number;
-  lastFrameTime: number | null; // null = seek to video.duration on client
-};
-
-export type EpisodeFramesData = {
-  cameras: string[];
-  framesByCamera: Record<string, EpisodeFrameInfo[]>;
-};
-
-export type EpisodeData = {
-  datasetInfo: DatasetDisplayInfo;
-  episodeId: number;
-  videosInfo: VideoInfo[];
-  chartDataGroups: ChartRow[][];
-  velocityChartDataGroups: ChartRow[][];
-  flatChartData: Record<string, number>[];
-  episodes: number[];
-  ignoredColumns: string[];
-  duration: number;
-  task?: string;
-  /**
-   * v3.1 language atoms read from `language_persistent` and `language_events`
-   * (lerobot#3467). Empty when the dataset hasn't been annotated yet.
-   * The annotations panel uses this to seed its editor state when no
-   * annotation backend is running.
-   */
-  languageAtoms?: import("@/types/language.types").LanguageAtom[];
-  /**
-   * Sorted source-frame timestamps from the data parquet, in seconds. Used by
-   * the annotations editor to snap atom timestamps to exact frame times —
-   * avoiding sub-frame drift from a throttled `currentTime` and keeping
-   * events compatible with the writer in lerobot#3471.
-   */
-  frameTimestamps?: number[];
-};
 
 type EpisodeMetadataV3 = {
   episode_index: number;
@@ -187,6 +130,23 @@ type ColumnDef = {
   key: string;
   value: string[];
 };
+
+function vectorValues(value: unknown): unknown[] | null {
+  if (Array.isArray(value)) return value;
+  if (!ArrayBuffer.isView(value)) return null;
+
+  const view = value as unknown as ArrayLike<unknown>;
+  return typeof view.length === "number" ? Array.from(view) : null;
+}
+
+function featureNames(names: unknown): string[] {
+  if (Array.isArray(names)) {
+    return names.filter((name): name is string => typeof name === "string");
+  }
+  if (!names || typeof names !== "object") return [];
+
+  return Object.values(names).flatMap(featureNames);
+}
 
 function parsePositiveIntEnv(
   value: string | undefined,
@@ -211,6 +171,7 @@ const episodeMetadataFileInFlight = new Map<
   Promise<Record<string, unknown>[] | null>
 >();
 const episodeMetadataRowCache = new Map<string, EpisodeMetadataV3>();
+const episodeMetadataShardListCache = new Map<string, string[]>();
 const MAX_EPISODE_METADATA_FILES = 96;
 const MAX_EPISODE_METADATA_ROWS = 4096;
 
@@ -224,6 +185,115 @@ function rememberMetadataFile(
     rows,
     MAX_EPISODE_METADATA_FILES,
   );
+}
+
+async function getEpisodeMetadataShardPaths(
+  repoId: string,
+  version: string,
+): Promise<string[] | null> {
+  const cacheKey = `${repoId}\u0000${version}`;
+  const cached = episodeMetadataShardListCache.get(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const response = await fetch(
+      `${getLocalDatasetFileBase(repoId)}/shards?kind=episode-metadata`,
+      { cache: "no-store" },
+    );
+    if (!response.ok) return null;
+    const payload: unknown = await response.json();
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      !("paths" in payload) ||
+      !Array.isArray(payload.paths) ||
+      !payload.paths.every((path) => typeof path === "string")
+    ) {
+      return null;
+    }
+    const paths = payload.paths as string[];
+    episodeMetadataShardListCache.set(cacheKey, paths);
+    return paths;
+  } catch {
+    // Keep the sequential probe as a fallback if the shard-list route is
+    // unavailable (for example, while an older server is still running).
+    return null;
+  }
+}
+
+async function readEpisodeMetadataFileV3(
+  repoId: string,
+  version: string,
+  path: string,
+): Promise<Record<string, unknown>[] | null> {
+  const url = buildVersionedUrl(repoId, version, path);
+  if (episodeMetadataFileCache.has(url)) {
+    return touchLru(episodeMetadataFileCache, url) ?? null;
+  }
+
+  const inFlight = episodeMetadataFileInFlight.get(url);
+  if (inFlight) {
+    const rows = await inFlight;
+    rememberMetadataFile(url, rows);
+    return rows;
+  }
+
+  const request = (async () => {
+    try {
+      const buf = await fetchParquetFile(url);
+      return await readParquetAsObjects(buf, []);
+    } catch {
+      return null;
+    }
+  })();
+  episodeMetadataFileInFlight.set(url, request);
+  try {
+    const rows = await request;
+    rememberMetadataFile(url, rows);
+    return rows;
+  } finally {
+    if (episodeMetadataFileInFlight.get(url) === request) {
+      episodeMetadataFileInFlight.delete(url);
+    }
+  }
+}
+
+async function fetchEpisodeMetadataRowV3(
+  repoId: string,
+  episodeId: number,
+): Promise<{ row: Record<string, unknown> | null; failure?: string }> {
+  let endpoint = "";
+  try {
+    endpoint =
+      getLocalDatasetFileBase(repoId) + "/episode-metadata/" + episodeId;
+    const response = await fetch(endpoint, { cache: "no-store" });
+    if (!response.ok) {
+      return {
+        row: null,
+        failure: "HTTP " + response.status + " from " + endpoint,
+      };
+    }
+
+    const payload: unknown = await response.json();
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      !("row" in payload) ||
+      !payload.row ||
+      typeof payload.row !== "object"
+    ) {
+      return { row: null, failure: "Invalid response from " + endpoint };
+    }
+    return { row: payload.row as Record<string, unknown> };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      row: null,
+      failure: endpoint
+        ? "Request to " + endpoint + " failed: " + detail
+        : detail,
+    };
+  }
 }
 
 const MAX_EPISODE_POINTS = parsePositiveIntEnv(
@@ -981,7 +1051,6 @@ async function getEpisodeDataV3(
     flatChartData,
     ignoredColumns,
     task,
-    languageAtoms,
     frameTimestamps,
   } = await loadEpisodeDataV3(repoId, version, info, episodeMetadata);
 
@@ -1000,7 +1069,6 @@ async function getEpisodeDataV3(
     ignoredColumns,
     duration,
     task,
-    languageAtoms,
     frameTimestamps,
   };
 }
@@ -1017,7 +1085,6 @@ async function loadEpisodeDataV3(
   flatChartData: Record<string, number>[];
   ignoredColumns: string[];
   task?: string;
-  languageAtoms?: import("@/types/language.types").LanguageAtom[];
   frameTimestamps?: number[];
 }> {
   // Build data file path using chunk and file indices
@@ -1036,10 +1103,6 @@ async function loadEpisodeDataV3(
         "language_instruction",
         "language_instruction_2",
         "language_instruction_3",
-        // v3.1 language schema (lerobot#3467) — list<struct{...}> columns
-        // that the annotations panel renders / edits.
-        "language_persistent",
-        "language_events",
         ...Object.entries(info.features)
           .filter(([, feature]) => {
             const dtype = feature.dtype.toLowerCase();
@@ -1122,7 +1185,6 @@ async function loadEpisodeDataV3(
         flatChartData: [],
         ignoredColumns: [],
         task: undefined,
-        languageAtoms: extractLanguageAtoms(episodeRows),
         frameTimestamps,
       };
     }
@@ -1216,7 +1278,6 @@ async function loadEpisodeDataV3(
       flatChartData,
       ignoredColumns,
       task,
-      languageAtoms: extractLanguageAtoms(episodeRows),
       frameTimestamps,
     };
   } catch {
@@ -1228,87 +1289,6 @@ async function loadEpisodeDataV3(
       task: undefined,
     };
   }
-}
-
-/**
- * Extract `LanguageAtom`s from a list of v3.1 parquet rows.
- *
- * Each row may carry two arrays:
- *   - `language_persistent`: broadcast — same content on every row in the
- *     episode. We sample row 0 (skipping nulls/empties).
- *   - `language_events`: per-row, mostly empty. We collect every event whose
- *     row's `timestamp` falls within the episode.
- *
- * Hyparquet decodes `list<struct<...>>` to `Array<Record<string, unknown>>`.
- * We coerce loosely-typed values to the canonical `LanguageAtom` shape and
- * drop rows that don't validate.
- */
-function extractLanguageAtoms(
-  episodeRows: Record<string, unknown>[],
-): import("@/types/language.types").LanguageAtom[] {
-  if (!episodeRows.length) return [];
-  type LanguageAtom = import("@/types/language.types").LanguageAtom;
-  const atoms: LanguageAtom[] = [];
-  const seenPersistent: Set<string> = new Set(); // dedupe broadcast copies
-
-  const coerce = (raw: unknown, fallbackTs?: number): LanguageAtom | null => {
-    if (!raw || typeof raw !== "object") return null;
-    const r = raw as Record<string, unknown>;
-    const role =
-      typeof r.role === "string" ? (r.role as LanguageAtom["role"]) : null;
-    if (!role) return null;
-    const style =
-      typeof r.style === "string" ? (r.style as LanguageAtom["style"]) : null;
-    const content = typeof r.content === "string" ? r.content : null;
-    const timestamp =
-      typeof r.timestamp === "number"
-        ? r.timestamp
-        : typeof r.timestamp === "bigint"
-          ? Number(r.timestamp)
-          : (fallbackTs ?? 0);
-    const tool_calls = Array.isArray(r.tool_calls)
-      ? (r.tool_calls as LanguageAtom["tool_calls"])
-      : null;
-    const camera =
-      typeof r.camera === "string" && r.camera.length > 0 ? r.camera : null;
-    return { role, content, style, timestamp, camera, tool_calls };
-  };
-
-  // Persistent slice: read once from the first row that has a non-empty list.
-  for (const row of episodeRows) {
-    const list = row["language_persistent"];
-    if (Array.isArray(list) && list.length > 0) {
-      for (const raw of list) {
-        const atom = coerce(raw);
-        if (!atom) continue;
-        const key = `${atom.style}|${atom.role}|${atom.timestamp}|${atom.camera ?? ""}|${atom.content}`;
-        if (seenPersistent.has(key)) continue;
-        seenPersistent.add(key);
-        atoms.push(atom);
-      }
-      break;
-    }
-  }
-
-  // Event slice: every non-empty per-row list contributes its rows. Each
-  // event's timestamp should already match its frame timestamp; we use the
-  // row timestamp as a fallback if it's missing.
-  for (const row of episodeRows) {
-    const list = row["language_events"];
-    if (!Array.isArray(list) || list.length === 0) continue;
-    const rowTs =
-      typeof row.timestamp === "number"
-        ? row.timestamp
-        : typeof row.timestamp === "bigint"
-          ? Number(row.timestamp)
-          : 0;
-    for (const raw of list) {
-      const atom = coerce(raw, rowTs);
-      if (atom) atoms.push(atom);
-    }
-  }
-
-  return atoms;
 }
 
 // Process episode data for charts (v3.0 compatible)
@@ -1362,21 +1342,18 @@ export function processEpisodeDataForCharts(
         isChartableNumericFeature(value) && !excludedColumns.includes(key),
     )
     .map(([key, feature]) => {
-      let column_names: unknown = feature.names;
-      while (typeof column_names === "object" && column_names !== null) {
-        if (Array.isArray(column_names)) break;
-        column_names = Object.values(column_names)[0];
-      }
+      const columnNames = featureNames(feature.names);
       return {
         key,
-        value: Array.isArray(column_names)
-          ? column_names.map(
-              (name: string) => `${key}${SERIES_NAME_DELIMITER}${name}`,
-            )
-          : Array.from(
-              { length: feature.shape[0] || 1 },
-              (_, i) => `${key}${CHART_CONFIG.SERIES_NAME_DELIMITER}${i}`,
-            ),
+        value:
+          columnNames.length > 0
+            ? columnNames.map(
+                (name: string) => `${key}${SERIES_NAME_DELIMITER}${name}`,
+              )
+            : Array.from(
+                { length: feature.shape[0] || 1 },
+                (_, i) => `${key}${CHART_CONFIG.SERIES_NAME_DELIMITER}${i}`,
+              ),
       };
     });
 
@@ -1399,11 +1376,7 @@ export function processEpisodeDataForCharts(
 
       // Find the matching column definition to get proper names
       const columnDef = columns.find((col) => col.key === featureName);
-      const vector = Array.isArray(value)
-        ? value
-        : ArrayBuffer.isView(value) && !(value instanceof DataView)
-          ? Array.from(value as unknown as ArrayLike<number>)
-          : null;
+      const vector = vectorValues(value);
       if (columnDef && vector && vector.length > 0) {
         // Use the proper hierarchical naming from column definition
         columnDef.value.forEach((seriesName, idx) => {
@@ -1455,11 +1428,7 @@ export function processEpisodeDataForCharts(
         // Find the matching column definition to get proper series names
         const columnDef = columns.find((col) => col.key === featureName);
 
-        const vector = Array.isArray(value)
-          ? value
-          : ArrayBuffer.isView(value) && !(value instanceof DataView)
-            ? Array.from(value as unknown as ArrayLike<number>)
-            : null;
+        const vector = vectorValues(value);
         if (vector && columnDef) {
           // For array values like observation.state and action, use proper hierarchical naming
           vector.forEach((val, idx) => {
@@ -1609,8 +1578,6 @@ async function* iterateEpisodeMetadataFilesV3(
   repoId: string,
   version: string,
 ): AsyncGenerator<Record<string, unknown>[], void, unknown> {
-  let chunkIndex = 0;
-  let fileIndex = 0;
   // One metadata row per episode, so the episode count tells us when the last
   // shard has been read. Without it the only way to learn where the tree ends
   // is to request shards that are not there — two 404s per walk, which the dev
@@ -1625,40 +1592,30 @@ async function* iterateEpisodeMetadataFilesV3(
     // No usable info.json — probe for the missing shard instead.
   }
 
+  // Prefer the server-enumerated shard list: it tolerates missing
+  // intermediate files and non-zero starting indices that the sequential
+  // file-000 probe cannot express. The probe below remains the fallback for
+  // environments where the shard-list route is unavailable.
+  const shardPaths = await getEpisodeMetadataShardPaths(repoId, version);
+  if (shardPaths) {
+    for (const shardPath of shardPaths) {
+      const rows = await readEpisodeMetadataFileV3(repoId, version, shardPath);
+      if (!rows || rows.length === 0) continue;
+      yield rows;
+      remainingEpisodes -= rows.length;
+      if (remainingEpisodes <= 0) return;
+    }
+    // Trust the authoritative info.json count when it says the walk is done;
+    // otherwise fall through to the sequential probe below in case the shard
+    // list missed files that actually exist.
+    if (remainingEpisodes <= 0) return;
+  }
+
+  let chunkIndex = 0;
+  let fileIndex = 0;
   while (true) {
     const path = buildV3EpisodesMetadataPath(chunkIndex, fileIndex);
-    const url = buildVersionedUrl(repoId, version, path);
-    let rows: Record<string, unknown>[] | null;
-    // `has` rather than a truthiness check: a cached `null` is the *result*
-    // "this shard does not exist", and it has to stop the refetch just as a
-    // cached row array does.
-    if (episodeMetadataFileCache.has(url)) {
-      rows = touchLru(episodeMetadataFileCache, url) ?? null;
-    } else {
-      const inFlight = episodeMetadataFileInFlight.get(url);
-      if (inFlight) {
-        rows = await inFlight;
-        rememberMetadataFile(url, rows);
-      } else {
-        const request = (async () => {
-          try {
-            const buf = await fetchParquetFile(url);
-            return await readParquetAsObjects(buf, []);
-          } catch {
-            return null;
-          }
-        })();
-        episodeMetadataFileInFlight.set(url, request);
-        try {
-          rows = await request;
-        } finally {
-          if (episodeMetadataFileInFlight.get(url) === request) {
-            episodeMetadataFileInFlight.delete(url);
-          }
-        }
-        rememberMetadataFile(url, rows);
-      }
-    }
+    const rows = await readEpisodeMetadataFileV3(repoId, version, path);
 
     if (!rows || rows.length === 0) {
       if (fileIndex === 0) return;
@@ -1684,6 +1641,23 @@ async function loadEpisodeMetadataV3Simple(
   const cached = touchLru(episodeMetadataRowCache, key);
   if (cached) return cached;
 
+  const rowLookup = await fetchEpisodeMetadataRowV3(repoId, episodeId);
+  const row = rowLookup.row;
+  if (row) {
+    const metadata = parseEpisodeRowSimple(row);
+    if (metadata.episode_index === episodeId) {
+      rememberInLru(
+        episodeMetadataRowCache,
+        key,
+        metadata,
+        MAX_EPISODE_METADATA_ROWS,
+      );
+      return metadata;
+    }
+    rowLookup.failure =
+      "endpoint returned episode_index " + metadata.episode_index;
+  }
+
   for await (const rows of iterateEpisodeMetadataFilesV3(repoId, version)) {
     for (const row of rows) {
       const metadata = parseEpisodeRowSimple(row);
@@ -1697,7 +1671,15 @@ async function loadEpisodeMetadataV3Simple(
       return metadata;
     }
   }
-  throw new Error(tStandalone("err.episodeNotFound", { id: episodeId }));
+  throw new Error(
+    "Episode " +
+      episodeId +
+      " not found in metadata for " +
+      repoId +
+      ". Direct metadata lookup: " +
+      (rowLookup.failure ?? "no matching row") +
+      ".",
+  );
 }
 
 // Simple parser for episode row - focuses on key fields for episodes
@@ -1871,26 +1853,13 @@ export async function loadAllEpisodeLengthsV3(
 ): Promise<EpisodeLengthStats | null> {
   try {
     const allEpisodes: { index: number; length: number }[] = [];
-    let fileIndex = 0;
-    const chunkIndex = 0;
-
-    while (true) {
-      const path = `meta/episodes/chunk-${chunkIndex.toString().padStart(3, "0")}/file-${fileIndex.toString().padStart(3, "0")}.parquet`;
-      const url = buildVersionedUrl(repoId, version, path);
-      try {
-        const buf = await fetchParquetFile(url);
-        const rows = await readParquetAsObjects(buf, []);
-        if (rows.length === 0 && fileIndex > 0) break;
-        for (const row of rows) {
-          const parsed = parseEpisodeRowSimple(row);
-          allEpisodes.push({
-            index: parsed.episode_index,
-            length: parsed.length,
-          });
-        }
-        fileIndex++;
-      } catch {
-        break;
+    for await (const rows of iterateEpisodeMetadataFilesV3(repoId, version)) {
+      for (const row of rows) {
+        const parsed = parseEpisodeRowSimple(row);
+        allEpisodes.push({
+          index: parsed.episode_index,
+          length: parsed.length,
+        });
       }
     }
 
@@ -2081,69 +2050,6 @@ export async function loadAllEpisodeFrameInfo(
 }
 
 // ─── Cross-episode action variance ──────────────────────────────
-
-export type LowMovementEpisode = {
-  episodeIndex: number;
-  totalMovement: number;
-};
-
-export type AggVelocityStat = {
-  name: string;
-  std: number; // normalized by motor range
-  maxAbs: number; // normalized by motor range
-  bins: number[];
-  lo: number; // normalized by motor range
-  hi: number; // normalized by motor range
-  motorRange: number;
-  inactive?: boolean; // true if p95(|Δa|) < 1% of motor range
-  discrete?: boolean; // true if motor has very few unique values (e.g. open/close gripper)
-};
-
-export type AggAutocorrelation = {
-  chartData: Record<string, number>[];
-  suggestedChunk: number | null;
-  shortKeys: string[];
-};
-
-export type SpeedDistEntry = {
-  episodeIndex: number;
-  speed: number;
-};
-
-export type AggAlignment = {
-  ccData: { lag: number; max: number; mean: number; min: number }[];
-  meanPeakLag: number;
-  meanPeakCorr: number;
-  maxPeakLag: number;
-  maxPeakCorr: number;
-  minPeakLag: number;
-  minPeakCorr: number;
-  lagRangeMin: number;
-  lagRangeMax: number;
-  numPairs: number;
-};
-
-export type JerkyEpisode = {
-  episodeIndex: number;
-  meanAbsDelta: number;
-};
-
-export type CrossEpisodeVarianceData = {
-  actionNames: string[];
-  timeBins: number[];
-  variance: number[][];
-  /** Episodes successfully loaded for the bounded statistical sample. */
-  numEpisodes: number;
-  /** Actual episode metadata entries in the dataset. */
-  totalEpisodes: number;
-  lowMovementEpisodes: LowMovementEpisode[];
-  aggVelocity: AggVelocityStat[];
-  aggAutocorrelation: AggAutocorrelation | null;
-  speedDistribution: SpeedDistEntry[];
-  jerkyEpisodes: JerkyEpisode[];
-  aggAlignment: AggAlignment | null;
-  spatialTrajectories: SpatialTrajectoryData | null;
-};
 
 export async function loadCrossEpisodeActionVariance(
   repoId: string,

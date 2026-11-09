@@ -1,0 +1,342 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { NextRequest } from "next/server";
+import { POST } from "@/app/api/workbench/mail-smoke-test/route";
+import {
+  workbenchSmtpPasswordFilePath,
+  writeWorkbenchSmtpPassword,
+} from "@/lib/workbench-mail-runtime";
+
+const previousEnv = {
+  LOCAL_DATASET_ROOT: process.env.LOCAL_DATASET_ROOT,
+  PYTHON_BIN: process.env.PYTHON_BIN,
+  PYTHONPATH: process.env.PYTHONPATH,
+  PYTHONHOME: process.env.PYTHONHOME,
+  SMTP_PASSWORD: process.env.SMTP_PASSWORD,
+  SMTP_PASSWORD_FILE: process.env.SMTP_PASSWORD_FILE,
+  SMTP_PROVIDER: process.env.SMTP_PROVIDER,
+  SMTP_FROM_ADDRESS: process.env.SMTP_FROM_ADDRESS,
+  SMTP_USERNAME: process.env.SMTP_USERNAME,
+};
+
+let tempDir: string;
+
+function restoreEnv(name: keyof typeof previousEnv): void {
+  const value = previousEnv[name];
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
+beforeEach(async () => {
+  tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "xense-mail-route-"));
+  for (const name of Object.keys(previousEnv) as Array<
+    keyof typeof previousEnv
+  >) {
+    restoreEnv(name);
+  }
+  delete process.env.PYTHON_BIN;
+  delete process.env.PYTHONHOME;
+  delete process.env.SMTP_PASSWORD;
+  delete process.env.SMTP_PASSWORD_FILE;
+  delete process.env.SMTP_PROVIDER;
+  delete process.env.SMTP_FROM_ADDRESS;
+  delete process.env.SMTP_USERNAME;
+  process.env.PYTHONPATH = "/tmp/should-not-leak";
+  process.env.LOCAL_DATASET_ROOT = tempDir;
+  await writeWorkbenchSmtpPassword("qq-code", "qq", tempDir);
+  await writeWorkbenchSmtpPassword("163-code", "163", tempDir);
+});
+
+afterEach(async () => {
+  for (const name of Object.keys(previousEnv) as Array<
+    keyof typeof previousEnv
+  >) {
+    restoreEnv(name);
+  }
+  await fs.rm(tempDir, { recursive: true, force: true });
+});
+
+function postRequest(
+  body: unknown,
+  headers: Record<string, string> = {},
+): NextRequest {
+  return new NextRequest("http://localhost/api/workbench/mail-smoke-test", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+async function writeFakePython(source: string): Promise<void> {
+  const file = path.join(tempDir, "fake-python");
+  await fs.writeFile(
+    file,
+    `#!/usr/bin/env bun
+${source}`,
+    "utf8",
+  );
+  await fs.chmod(file, 0o755);
+  process.env.PYTHON_BIN = file;
+}
+
+describe("Workbench mail smoke-test route", () => {
+  test("rejects browser cross-origin requests", async () => {
+    const response = await POST(
+      postRequest(
+        {
+          org: "TacVerse",
+          message: {
+            sender: "sender@qq.com",
+            recipient: "frank@xenserobotics.com",
+            subject: "SMTP smoketest",
+            textBody: "Plain report",
+            htmlBody: "<html><body>Report</body></html>",
+          },
+        },
+        {
+          Origin: "http://evil.example",
+          "Sec-Fetch-Site": "cross-site",
+        },
+      ),
+    );
+
+    await expect(response.json()).resolves.toMatchObject({
+      code: "ORIGIN_REJECTED",
+    });
+    expect(response.status).toBe(403);
+  });
+
+  test("normalizes message fields and passes both bodies to SMTP", async () => {
+    await writeFakePython(`
+console.log(JSON.stringify({
+  type: "result",
+  result: {
+    status: "ok",
+    message: "SMTP smoke test sent.",
+    from: process.env.SMTP_FROM_ADDRESS,
+    username: process.env.SMTP_USERNAME,
+    to: process.env.SMTP_TO_ADDRESS,
+    subject: process.env.SMTP_SUBJECT,
+    textBody: process.env.SMTP_TEXT_BODY,
+    htmlBody: process.env.SMTP_HTML_BODY,
+    passwordFile: process.env.SMTP_PASSWORD_FILE,
+    pythonPath: process.env.PYTHONPATH ?? null
+  }
+}));
+`);
+
+    const response = await POST(
+      postRequest({
+        org: " TacVerse ",
+        message: {
+          sender: "sender@qq.com",
+          recipient:
+            " frank@xenserobotics.com; jay@xenserobotics.com,FRANK@xenserobotics.com ",
+          subject: " SMTP smoketest ",
+          textBody: "Plain report",
+          htmlBody: "<!doctype html><html><body>HTML report</body></html>",
+        },
+      }),
+    );
+    const payload = (await response.json()) as {
+      message: string;
+      result: Record<string, unknown>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.message).toBe("SMTP smoke test sent.");
+    expect(payload.result).toMatchObject({
+      from: "sender@qq.com",
+      username: "sender@qq.com",
+      to: "frank@xenserobotics.com, jay@xenserobotics.com",
+      subject: "SMTP smoketest",
+      textBody: "Plain report",
+      htmlBody: "<!doctype html><html><body>HTML report</body></html>",
+      passwordFile: path.join(
+        tempDir,
+        ".xense-viewer/secrets/smtp-qq-authorization-code",
+      ),
+      pythonPath: null,
+    });
+  });
+
+  test("derives the 163 provider and sender settings from the request", async () => {
+    process.env.SMTP_PROVIDER = "qq";
+    process.env.SMTP_FROM_ADDRESS = "environment@qq.com";
+    await writeFakePython(`
+console.log(JSON.stringify({
+  type: "result",
+  result: {
+    provider: process.env.SMTP_PROVIDER,
+    from: process.env.SMTP_FROM_ADDRESS,
+    username: process.env.SMTP_USERNAME,
+    passwordFile: process.env.SMTP_PASSWORD_FILE
+  }
+}));
+`);
+
+    const response = await POST(
+      postRequest({
+        org: "TacVerse",
+        message: {
+          sender: "operator@163.com",
+          recipient: "frank@xenserobotics.com",
+          subject: "SMTP smoketest",
+          textBody: "Plain report",
+          htmlBody: "<html><body>Report</body></html>",
+        },
+      }),
+    );
+    const payload = (await response.json()) as {
+      result: Record<string, unknown>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.result).toMatchObject({
+      provider: "163",
+      from: "operator@163.com",
+      username: "operator@163.com",
+      passwordFile: path.join(
+        tempDir,
+        ".xense-viewer/secrets/smtp-163-authorization-code",
+      ),
+    });
+  });
+
+  test("rejects disallowed sender domains before SMTP", async () => {
+    for (const sender of [
+      "person@xenserobotics.com",
+      "person@example.com",
+      "person@qq.com.evil",
+    ]) {
+      const response = await POST(
+        postRequest({
+          org: "TacVerse",
+          message: {
+            sender,
+            recipient: "jay@xenserobotics.com",
+            subject: "SMTP smoketest",
+            textBody: "Plain report",
+            htmlBody: "<html><body>Report</body></html>",
+          },
+        }),
+      );
+      expect(response.status).toBe(400);
+    }
+  });
+
+  test("returns a clear configuration error when the provider code is missing", async () => {
+    await fs.unlink(workbenchSmtpPasswordFilePath("qq", tempDir));
+    const response = await POST(
+      postRequest({
+        org: "TacVerse",
+        message: {
+          sender: "sender@qq.com",
+          recipient: "jay@xenserobotics.com",
+          subject: "SMTP smoketest",
+          textBody: "Plain report",
+          htmlBody: "<html><body>Report</body></html>",
+        },
+      }),
+    );
+    await expect(response.json()).resolves.toMatchObject({
+      stage: "config",
+      code: "SMTP_AUTHORIZATION_CODE_MISSING",
+      error: expect.stringContaining("Missing QQ SMTP authorization code"),
+    });
+    expect(response.status).toBe(500);
+  });
+
+  test("returns script stage and code on SMTP failures", async () => {
+    await writeFakePython(`
+console.log(JSON.stringify({
+  type: "error",
+  stage: "auth",
+  code: "auth_error",
+  error: "authentication failed"
+}));
+process.exit(3);
+`);
+
+    const response = await POST(
+      postRequest({
+        org: "TacVerse",
+        message: {
+          sender: "sender@qq.com",
+          recipient: "frank@xenserobotics.com",
+          subject: "SMTP smoketest",
+          textBody: "Plain report",
+          htmlBody: "<html><body>Report</body></html>",
+        },
+      }),
+    );
+
+    const payload = (await response.json()) as {
+      error: string;
+      stage: string;
+      code: string;
+    };
+    expect(payload).toEqual({
+      error: expect.stringContaining(
+        "SMTP login failed for sender@qq.com via QQ",
+      ),
+      stage: "auth",
+      code: "auth_error",
+    });
+    expect(payload.error).toContain(
+      "Save the SMTP authorization code for this exact mailbox",
+    );
+    expect(payload.error).toContain("authentication failed");
+    expect(response.status).toBe(502);
+  });
+
+  test("returns a clear error for malformed script output", async () => {
+    await writeFakePython(`console.log("not-json");`);
+
+    const response = await POST(
+      postRequest({
+        org: "TacVerse",
+        message: {
+          sender: "sender@qq.com",
+          recipient: "frank@xenserobotics.com",
+          subject: "SMTP smoketest",
+          textBody: "Plain report",
+          htmlBody: "<html><body>Report</body></html>",
+        },
+      }),
+    );
+    const payload = (await response.json()) as {
+      error: string;
+      stage: string;
+      code: string;
+    };
+
+    expect(response.status).toBe(502);
+    expect(payload.stage).toBe("script");
+    expect(payload.code).toBe("SMTP_OUTPUT_INVALID");
+    expect(payload.error).toContain("malformed output");
+  });
+
+  test("rejects legacy draft payloads without generated bodies", async () => {
+    const response = await POST(
+      postRequest({
+        org: "TacVerse",
+        draft: {
+          recipient: "frank@xenserobotics.com",
+          subject: "SMTP smoketest",
+          body: "Legacy Markdown",
+        },
+      }),
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      error: "Workbench mail smoke test requires a message.",
+    });
+    expect(response.status).toBe(400);
+  });
+});

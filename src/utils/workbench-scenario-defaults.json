@@ -1,0 +1,1047 @@
+{
+  "taccap-g1::add-cucumber-slices-to-petri-dish": {
+    "level1": "工作台场景",
+    "level2": "实验操作",
+    "taskName": "黄瓜片放入培养皿"
+  },
+  "taccap-g1::adjust-projector-stand": {
+    "level1": "办公场景",
+    "level2": "会议室",
+    "taskName": "调整投影仪支架位置并拧紧旋钮"
+  },
+  "taccap-g1::align-remote-and-laser-pointer": {
+    "level1": "办公场景",
+    "level2": "会议室",
+    "taskName": "调整遥控器和激光笔"
+  },
+  "taccap-g1::arrange-cutlery-case": {
+    "level1": "家庭场景",
+    "level2": "饮品餐饮",
+    "taskName": "整理餐具盒"
+  },
+  "taccap-g1::arrange-cutlery-in-storage-slots": {
+    "level1": "家庭场景",
+    "level2": "饮品餐饮",
+    "taskName": "整理餐具并插入收纳槽"
+  },
+  "taccap-g1::arrange-desk-items": {
+    "level1": "办公场景",
+    "level2": "桌面整理",
+    "taskName": "整理桌面小物件"
+  },
+  "taccap-g1::arrange-dishes-in-rack": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "碗碟分类放入碗架"
+  },
+  "taccap-g1::arrange-food-packaging-bags": {
+    "level1": "家庭场景",
+    "level2": "食品包装",
+    "taskName": "整理食品包装袋"
+  },
+  "taccap-g1::arrange-loose-papers": {
+    "level1": "办公场景",
+    "level2": "文件处理",
+    "taskName": "整理散乱纸张"
+  },
+  "taccap-g1::arrange-medicine-boxes": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "整理小药盒"
+  },
+  "taccap-g1::arrange-mouse-mouse-pad": {
+    "level1": "办公场景",
+    "level2": "桌面整理",
+    "taskName": "整理鼠标和鼠标垫"
+  },
+  "taccap-g1::arrange-pen-set": {
+    "level1": "办公场景",
+    "level2": "桌面整理",
+    "taskName": "整理签字笔套装"
+  },
+  "taccap-g1::arrange-pens-sticky-notes": {
+    "level1": "办公场景",
+    "level2": "桌面整理",
+    "taskName": "整理笔和便签"
+  },
+  "taccap-g1::arrange-skincare-products": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "整理护肤品"
+  },
+  "taccap-g1::arrange-tabletop-items": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "整理桌面杂物"
+  },
+  "taccap-g1::arrange-toys": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "整理玩具"
+  },
+  "taccap-g1::assemble-and-place-cup": {
+    "level1": "家庭场景",
+    "level2": "饮品餐饮",
+    "taskName": "组装杯具并装盒"
+  },
+  "taccap-g1::assemble-burger": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "制作汉堡"
+  },
+  "taccap-g1::assemble-jigsaw-puzzle": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "拼图"
+  },
+  "taccap-g1::assemble-tangram": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "拼搭七巧板"
+  },
+  "taccap-g1::assemble-toy-blocks": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "拼插积木组件"
+  },
+  "taccap-g1::candybowl": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "夹取糖果并装碗"
+  },
+  "taccap-g1::cap-torque-confirmation": {
+    "level1": "家庭场景",
+    "level2": "个护卫生",
+    "taskName": "旋开护肤瓶盖"
+  },
+  "taccap-g1::charge-phone": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "连接手机充电"
+  },
+  "taccap-g1::check-connector-seating": {
+    "level1": "工作台场景",
+    "level2": "检测操作",
+    "taskName": "接插件插接到位确认"
+  },
+  "taccap-g1::chips": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "取出薯片"
+  },
+  "taccap-g1::clamp-fixture-loosen-clip-secure-to-edge-tighten-clip": {
+    "level1": "办公场景",
+    "level2": "理线维护",
+    "taskName": "固定桌面夹具"
+  },
+  "taccap-g1::clean-desk": {
+    "level1": "家庭场景",
+    "level2": "清洁整理",
+    "taskName": "清扫桌面垃圾"
+  },
+  "taccap-g1::coffee-can-opening": {
+    "level1": "办公场景",
+    "level2": "茶水区",
+    "taskName": "打开咖啡罐"
+  },
+  "taccap-g1::coil-secure-cable-with-velcro": {
+    "level1": "办公场景",
+    "level2": "理线维护",
+    "taskName": "整理桌面线缆"
+  },
+  "taccap-g1::collect-magazines-to-bookshelf": {
+    "level1": "办公场景",
+    "level2": "文件处理",
+    "taskName": "整理杂志上书架"
+  },
+  "taccap-g1::collect-playing-cards": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "整理扑克牌"
+  },
+  "taccap-g1::collect-tomato-from-tabletop": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "番茄装盒并扣盖"
+  },
+  "taccap-g1::compare-elastomer-hardness": {
+    "level1": "工作台场景",
+    "level2": "检测操作",
+    "taskName": "软质件硬度与回弹对比检测"
+  },
+  "taccap-g1::connect-the-charger-to-the-type-c-data-cable": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "插入USB设备"
+  },
+  "taccap-g1::connect-type-c-cable": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "插入USB设备"
+  },
+  "taccap-g1::cosmetics-are-scanned-and-boxed": {
+    "level1": "工作台场景",
+    "level2": "包装装箱",
+    "taskName": "化妆品扫码装箱"
+  },
+  "taccap-g1::cucumber": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "黄瓜削皮"
+  },
+  "taccap-g1::cutcucumber": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "切黄瓜"
+  },
+  "taccap-g1::disassemble-sort-blocks": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "拆卸并分类积木"
+  },
+  "taccap-g1::erase-whiteboard-text": {
+    "level1": "办公场景",
+    "level2": "会议室",
+    "taskName": "擦拭白板"
+  },
+  "taccap-g1::erase-whiteboard-texts": {
+    "level1": "办公场景",
+    "level2": "会议室",
+    "taskName": "擦拭白板"
+  },
+  "taccap-g1::flip-bound-document": {
+    "level1": "办公场景",
+    "level2": "文件处理",
+    "taskName": "翻阅装订文件"
+  },
+  "taccap-g1::fold-cloth": {
+    "level1": "家庭场景",
+    "level2": "衣物织物",
+    "taskName": "折叠布料"
+  },
+  "taccap-g1::fold-garment": {
+    "level1": "家庭场景",
+    "level2": "衣物织物",
+    "taskName": "折叠衣服"
+  },
+  "taccap-g1::fold-towel": {
+    "level1": "家庭场景",
+    "level2": "衣物织物",
+    "taskName": "折叠毛巾"
+  },
+  "taccap-g1::fold-towel-wipe-table": {
+    "level1": "家庭场景",
+    "level2": "清洁整理",
+    "taskName": "擦拭桌面"
+  },
+  "taccap-g1::gather-cups-and-place-pens": {
+    "level1": "办公场景",
+    "level2": "桌面整理",
+    "taskName": "堆叠纸杯并收纳笔"
+  },
+  "taccap-g1::grab-usb-connector-insert-into-pc-port": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "插入USB设备"
+  },
+  "taccap-g1::grap-fabric": {
+    "level1": "家庭场景",
+    "level2": "衣物织物",
+    "taskName": "折叠布料"
+  },
+  "taccap-g1::grasp-the-water-cup-and-twist-off-the-cup-lid": {
+    "level1": "办公场景",
+    "level2": "茶水区",
+    "taskName": "准备纸杯和水瓶"
+  },
+  "taccap-g1::hang-up-the-towel": {
+    "level1": "家庭场景",
+    "level2": "个护卫生",
+    "taskName": "挂放毛巾"
+  },
+  "taccap-g1::identify-and-place-reagent-bottle": {
+    "level1": "工作台场景",
+    "level2": "实验操作",
+    "taskName": "识别试剂瓶并归位"
+  },
+  "taccap-g1::insert-divider": {
+    "level1": "工作台场景",
+    "level2": "精密装配",
+    "taskName": "插入隔板到双侧导槽"
+  },
+  "taccap-g1::insert-hook-assembly": {
+    "level1": "家庭场景",
+    "level2": "家居开合收纳",
+    "taskName": "安装挂钩组件"
+  },
+  "taccap-g1::insert-jst-connector": {
+    "level1": "工作台场景",
+    "level2": "精密装配",
+    "taskName": "插接JST线束连接器"
+  },
+  "taccap-g1::insert-pen-glue-stick-holder": {
+    "level1": "办公场景",
+    "level2": "桌面整理",
+    "taskName": "文具插入笔筒"
+  },
+  "taccap-g1::insert-pen-gluestick-holder": {
+    "level1": "办公场景",
+    "level2": "桌面整理",
+    "taskName": "文具插入笔筒"
+  },
+  "taccap-g1::insert-shoelace-into-eyelets": {
+    "level1": "家庭场景",
+    "level2": "衣物织物",
+    "taskName": "穿鞋带"
+  },
+  "taccap-g1::insert-usb-connector-into-porte": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "插入USB设备"
+  },
+  "taccap-g1::install-compression-spring": {
+    "level1": "工作台场景",
+    "level2": "精密装配",
+    "taskName": "安装压缩弹簧到定位柱"
+  },
+  "taccap-g1::install-power-strip": {
+    "level1": "办公场景",
+    "level2": "理线维护",
+    "taskName": "调整插线板"
+  },
+  "taccap-g1::liquid-medicine-bottles-cartoning": {
+    "level1": "工作台场景",
+    "level2": "包装装箱",
+    "taskName": "药瓶装盒"
+  },
+  "taccap-g1::locate-cover-grip-clip-into-slot": {
+    "level1": "办公场景",
+    "level2": "理线维护",
+    "taskName": "安装理线槽盖板"
+  },
+  "taccap-g1::locate-cover-grip-clips-into-slot": {
+    "level1": "办公场景",
+    "level2": "理线维护",
+    "taskName": "安装理线槽盖板"
+  },
+  "taccap-g1::locate-the-usb-plug-end-of-the-data-cable": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "拔出USB设备"
+  },
+  "taccap-g1::loosen-cable-gland": {
+    "level1": "工作台场景",
+    "level2": "拆卸维修",
+    "taskName": "松开电缆格兰头并抽出线缆"
+  },
+  "taccap-g1::makeup-quality-inspection-boxing": {
+    "level1": "工作台场景",
+    "level2": "检测操作",
+    "taskName": "化妆品外观检查分拣"
+  },
+  "taccap-g1::mask-extraction-and-stacking": {
+    "level1": "家庭场景",
+    "level2": "个护卫生",
+    "taskName": "抽取并堆叠口罩"
+  },
+  "taccap-g1::match-number-cards": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "匹配数字卡片"
+  },
+  "taccap-g1::medicine-bottle-label-orientation-and-batch-number-verification": {
+    "level1": "工作台场景",
+    "level2": "检测操作",
+    "taskName": "药瓶标签朝向及批次核验"
+  },
+  "taccap-g1::medicine-traceability-box-inspection": {
+    "level1": "工作台场景",
+    "level2": "检测操作",
+    "taskName": "药盒追溯码检查"
+  },
+  "taccap-g1::open-blind-box": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "拆开盲盒取物"
+  },
+  "taccap-g1::open-cup-lid": {
+    "level1": "家庭场景",
+    "level2": "饮品餐饮",
+    "taskName": "打开杯盖"
+  },
+  "taccap-g1::open-folded-towel": {
+    "level1": "家庭场景",
+    "level2": "衣物织物",
+    "taskName": "展开折叠毛巾"
+  },
+  "taccap-g1::open-resealable-bag": {
+    "level1": "家庭场景",
+    "level2": "食品包装",
+    "taskName": "打开自封袋"
+  },
+  "taccap-g1::open-the-water-bottle": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "拧开矿泉水瓶盖"
+  },
+  "taccap-g1::operate-desk-lamp": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "连接并开关台灯"
+  },
+  "taccap-g1::operate-shoe-box": {
+    "level1": "家庭场景",
+    "level2": "家居开合收纳",
+    "taskName": "打开鞋盒取物"
+  },
+  "taccap-g1::organize-folders": {
+    "level1": "办公场景",
+    "level2": "会议室",
+    "taskName": "整理会议桌上的文件夹"
+  },
+  "taccap-g1::organize-meeting-table-items": {
+    "level1": "办公场景",
+    "level2": "会议室",
+    "taskName": "整理会议桌物品"
+  },
+  "taccap-g1::organize-printing-paper-stack": {
+    "level1": "办公场景",
+    "level2": "打印区",
+    "taskName": "整理打印纸堆"
+  },
+  "taccap-g1::organize-printing-papers-stack": {
+    "level1": "办公场景",
+    "level2": "打印区",
+    "taskName": "整理打印纸堆"
+  },
+  "taccap-g1::paper-punching": {
+    "level1": "办公场景",
+    "level2": "文具使用",
+    "taskName": "使用打孔器"
+  },
+  "taccap-g1::peel-arrange-close-earphone-velcro": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "整理耳机线"
+  },
+  "taccap-g1::peel-cucumber": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "黄瓜削皮"
+  },
+  "taccap-g1::peel-the-cucumber-on-the-cutting-board-with-the-peeler": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "黄瓜削皮"
+  },
+  "taccap-g1::pepper": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "撒胡椒粉"
+  },
+  "taccap-g1::petri-dish-filling": {
+    "level1": "工作台场景",
+    "level2": "实验操作",
+    "taskName": "培养皿灌装"
+  },
+  "taccap-g1::pick-bread-from-bowl": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "夹取面包"
+  },
+  "taccap-g1::pick-connector-press-tab-insert-port": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "连接网线"
+  },
+  "taccap-g1::pick-up-bread-slices": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "夹取面包"
+  },
+  "taccap-g1::pick-up-chips": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "取出薯片"
+  },
+  "taccap-g1::pick-up-cube": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "整理玩具"
+  },
+  "taccap-g1::pick-up-marshmallows": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "夹取糖果并装碗"
+  },
+  "taccap-g1::pick-up-qq-candy": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "夹取糖果并装碗"
+  },
+  "taccap-g1::place-chess-pieces": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "摆放棋子"
+  },
+  "taccap-g1::place-cosmetic-bottles-into-rack": {
+    "level1": "家庭场景",
+    "level2": "家居开合收纳",
+    "taskName": "化妆瓶收纳进抽屉"
+  },
+  "taccap-g1::place-egg-into-egg-tray": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "夹取鸡蛋放入蛋托"
+  },
+  "taccap-g1::place-food-with-tongs": {
+    "level1": "家庭场景",
+    "level2": "饮品餐饮",
+    "taskName": "使用夹子夹取食品"
+  },
+  "taccap-g1::place-paper-cup": {
+    "level1": "家庭场景",
+    "level2": "饮品餐饮",
+    "taskName": "夹取纸杯并移动"
+  },
+  "taccap-g1::place-toy-on-shelf": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "整理玩具"
+  },
+  "taccap-g1::place-washer-onto-stud": {
+    "level1": "工作台场景",
+    "level2": "精密装配",
+    "taskName": "垫片套入螺柱并压到底"
+  },
+  "taccap-g1::place-washer-with-tweezers": {
+    "level1": "工作台场景",
+    "level2": "工具操作",
+    "taskName": "使用镊子夹取并放置薄垫片"
+  },
+  "taccap-g1::play-rubiks-cube": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "转动魔方"
+  },
+  "taccap-g1::plug-power-plug-into-socket": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "插插头"
+  },
+  "taccap-g1::plug-the-charger-into-the-desktop-socket": {
+    "level1": "办公场景",
+    "level2": "理线维护",
+    "taskName": "调整插线板"
+  },
+  "taccap-g1::plug-the-charger-into-the-power-strip": {
+    "level1": "办公场景",
+    "level2": "理线维护",
+    "taskName": "调整插线板"
+  },
+  "taccap-g1::pour-dirty-water-into-sink": {
+    "level1": "家庭场景",
+    "level2": "清洁整理",
+    "taskName": "倾倒污水"
+  },
+  "taccap-g1::prepare-whiteboard-marker": {
+    "level1": "办公场景",
+    "level2": "会议室",
+    "taskName": "准备白板笔"
+  },
+  "taccap-g1::press-pump-bottle": {
+    "level1": "家庭场景",
+    "level2": "个护卫生",
+    "taskName": "按压泵瓶"
+  },
+  "taccap-g1::press-remote-buttons": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "按压遥控器按键"
+  },
+  "taccap-g1::product-turnover-scanning-quality-inspection": {
+    "level1": "工作台场景",
+    "level2": "检测操作",
+    "taskName": "商品翻面扫码检测"
+  },
+  "taccap-g1::pull-single-sheet": {
+    "level1": "办公场景",
+    "level2": "文件处理",
+    "taskName": "抽取单页文件"
+  },
+  "taccap-g1::pull-tissue-from-the-box": {
+    "level1": "家庭场景",
+    "level2": "个护卫生",
+    "taskName": "抽取抽纸"
+  },
+  "taccap-g1::pump-hand-sanitizer": {
+    "level1": "家庭场景",
+    "level2": "个护卫生",
+    "taskName": "按压洗手液"
+  },
+  "taccap-g1::put-earphone-into-case": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "耳机入盒收纳"
+  },
+  "taccap-g1::put-item-in-display-cover": {
+    "level1": "家庭场景",
+    "level2": "家居开合收纳",
+    "taskName": "打开罩盖放入物品"
+  },
+  "taccap-g1::put-pen-into-holder": {
+    "level1": "办公场景",
+    "level2": "桌面整理",
+    "taskName": "文具插入笔筒"
+  },
+  "taccap-g1::put-tool-into-toolbox": {
+    "level1": "工作台场景",
+    "level2": "工具操作",
+    "taskName": "工具归位工具箱"
+  },
+  "taccap-g1::put-wires-on-rack": {
+    "level1": "工作台场景",
+    "level2": "物料分拣",
+    "taskName": "整理线材并上架"
+  },
+  "taccap-g1::remove-and-place-paper": {
+    "level1": "办公场景",
+    "level2": "打印区",
+    "taskName": "取打印纸"
+  },
+  "taccap-g1::remove-battery-cover": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "拆下计算器电池盖"
+  },
+  "taccap-g1::remove-item-from-display-cover": {
+    "level1": "家庭场景",
+    "level2": "家居开合收纳",
+    "taskName": "打开罩盖取物"
+  },
+  "taccap-g1::remove-o-ring": {
+    "level1": "工作台场景",
+    "level2": "拆卸维修",
+    "taskName": "从轴槽中拆下O形圈"
+  },
+  "taccap-g1::replace-shaver-head": {
+    "level1": "家庭场景",
+    "level2": "个护卫生",
+    "taskName": "更换剃须刀头"
+  },
+  "taccap-g1::restock-snack-and-drink-counter": {
+    "level1": "家庭场景",
+    "level2": "食品包装",
+    "taskName": "补充零食和饮料"
+  },
+  "taccap-g1::return-seasoning-containers": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "调味瓶归位"
+  },
+  "taccap-g1::rotate-seasoning-bottle-to-target": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "旋转调味瓶"
+  },
+  "taccap-g1::scoop-coffee-granules": {
+    "level1": "办公场景",
+    "level2": "茶水区",
+    "taskName": "舀取咖啡颗粒"
+  },
+  "taccap-g1::scoop-seasoning": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "舀取调味料"
+  },
+  "taccap-g1::seasoning": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "取用调味料"
+  },
+  "taccap-g1::set-the-dining-table": {
+    "level1": "家庭场景",
+    "level2": "饮品餐饮",
+    "taskName": "摆放餐具"
+  },
+  "taccap-g1::slice-cucumber": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "切黄瓜"
+  },
+  "taccap-g1::snap-plastic-buckle": {
+    "level1": "家庭场景",
+    "level2": "家居开合收纳",
+    "taskName": "扣合塑料卡扣"
+  },
+  "taccap-g1::snap-storage-box-latches": {
+    "level1": "家庭场景",
+    "level2": "家居开合收纳",
+    "taskName": "扣合塑料卡扣箱"
+  },
+  "taccap-g1::sort-and-organize-vegetables": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "分类收纳蔬菜"
+  },
+  "taccap-g1::sort-coins": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "分类硬币"
+  },
+  "taccap-g1::sort-condiments-and-ingredients": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "分类调味料和食材"
+  },
+  "taccap-g1::sort-defective-parts": {
+    "level1": "工作台场景",
+    "level2": "检测操作",
+    "taskName": "缺陷零件分类检测"
+  },
+  "taccap-g1::sort-go-stones": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "分类围棋子"
+  },
+  "taccap-g1::sort-long-short-screws": {
+    "level1": "工作台场景",
+    "level2": "物料分拣",
+    "taskName": "按长度分类螺钉"
+  },
+  "taccap-g1::sort-resistors": {
+    "level1": "工作台场景",
+    "level2": "物料分拣",
+    "taskName": "按型号颜色分类电阻"
+  },
+  "taccap-g1::sort-screws-nuts-washers-into-bins": {
+    "level1": "工作台场景",
+    "level2": "物料分拣",
+    "taskName": "分类螺钉螺母和垫片"
+  },
+  "taccap-g1::sort-snacks": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "分类零食"
+  },
+  "taccap-g1::sort-trash-cards": {
+    "level1": "家庭场景",
+    "level2": "清洁整理",
+    "taskName": "分类垃圾卡片"
+  },
+  "taccap-g1::squeeze-the-toothpaste": {
+    "level1": "家庭场景",
+    "level2": "个护卫生",
+    "taskName": "挤牙膏"
+  },
+  "taccap-g1::stack-paper-cups": {
+    "level1": "家庭场景",
+    "level2": "饮品餐饮",
+    "taskName": "堆叠纸杯"
+  },
+  "taccap-g1::stand-eggs-in-tray": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "夹取鸡蛋放入蛋托"
+  },
+  "taccap-g1::stand-the-stemmed-glass": {
+    "level1": "家庭场景",
+    "level2": "饮品餐饮",
+    "taskName": "立放高脚杯"
+  },
+  "taccap-g1::stand-the-stemmed-glass-upright-on-the-table-place-it-in-front-of-you": {
+    "level1": "家庭场景",
+    "level2": "饮品餐饮",
+    "taskName": "立放高脚杯"
+  },
+  "taccap-g1::stand-water-bottle": {
+    "level1": "家庭场景",
+    "level2": "饮品餐饮",
+    "taskName": "立放水瓶"
+  },
+  "taccap-g1::stapler-using": {
+    "level1": "办公场景",
+    "level2": "文具使用",
+    "taskName": "使用订书机"
+  },
+  "taccap-g1::store-earbuds": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "耳机入盒收纳"
+  },
+  "taccap-g1::store-item-in-drawer": {
+    "level1": "家庭场景",
+    "level2": "家居开合收纳",
+    "taskName": "抽屉开合收纳物品"
+  },
+  "taccap-g1::take-apart-and-reassemble-vacuum-cleaner": {
+    "level1": "家庭场景",
+    "level2": "清洁整理",
+    "taskName": "拆装吸尘器部件"
+  },
+  "taccap-g1::take-out-ganmaoling-bag": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "从药盒取出药袋"
+  },
+  "taccap-g1::take-tomato-out-place-on-tabletop": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "打开保鲜盒取出番茄"
+  },
+  "taccap-g1::tear-open-the-coffee-bag": {
+    "level1": "办公场景",
+    "level2": "茶水区",
+    "taskName": "处理咖啡袋"
+  },
+  "taccap-g1::tidy-coffee-cups": {
+    "level1": "办公场景",
+    "level2": "茶水区",
+    "taskName": "整理咖啡杯托盘和餐匙"
+  },
+  "taccap-g1::tidy-up-the-desktop-cables": {
+    "level1": "办公场景",
+    "level2": "理线维护",
+    "taskName": "整理桌面线缆"
+  },
+  "taccap-g1::tissue-and-soft-pack-organizing": {
+    "level1": "办公场景",
+    "level2": "茶水区",
+    "taskName": "整理纸巾和软包"
+  },
+  "taccap-g1::turn-on-and-turn-down-desk-lamp": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "连接并开关台灯"
+  },
+  "taccap-g1::unplug-hdmi-cable-from-monitor": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "连接HDMI线"
+  },
+  "taccap-g1::unplug-usb-cable-from-port": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "拔出USB设备"
+  },
+  "taccap-g1::unscrew-and-recap-lipstick": {
+    "level1": "家庭场景",
+    "level2": "个护卫生",
+    "taskName": "打开并盖回口红盖"
+  },
+  "taccap-g1::wipe-mirror": {
+    "level1": "家庭场景",
+    "level2": "清洁整理",
+    "taskName": "擦拭镜面"
+  },
+  "taccap-g1::wipe-phone-move-case-edge": {
+    "level1": "办公场景",
+    "level2": "桌面整理",
+    "taskName": "清理手机区域"
+  },
+  "xtac-umi-g1::arrange-desk-items": {
+    "level1": "办公场景",
+    "level2": "桌面整理",
+    "taskName": "整理桌面小物件"
+  },
+  "xtac-umi-g1::block-to-box": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "整理玩具"
+  },
+  "xtac-umi-g1::bottle-to-cup": {
+    "level1": "家庭场景",
+    "level2": "饮品餐饮",
+    "taskName": "拧开瓶盖并倒水入杯"
+  },
+  "xtac-umi-g1::check-connector-seating": {
+    "level1": "工作台场景",
+    "level2": "检测操作",
+    "taskName": "接插件插接到位确认"
+  },
+  "xtac-umi-g1::clean-blackboard": {
+    "level1": "办公场景",
+    "level2": "会议室",
+    "taskName": "擦拭黑板"
+  },
+  "xtac-umi-g1::flip-bound-document": {
+    "level1": "办公场景",
+    "level2": "文件处理",
+    "taskName": "翻阅装订文件"
+  },
+  "xtac-umi-g1::insert-divider": {
+    "level1": "工作台场景",
+    "level2": "精密装配",
+    "taskName": "插入隔板到双侧导槽"
+  },
+  "xtac-umi-g1::insert-locating-pin": {
+    "level1": "工作台场景",
+    "level2": "精密装配",
+    "taskName": "插入定位销到孔位"
+  },
+  "xtac-umi-g1::insert-optical-module": {
+    "level1": "工作台场景",
+    "level2": "精密装配",
+    "taskName": "插接光模块"
+  },
+  "xtac-umi-g1::insert-rubber-stopper": {
+    "level1": "工作台场景",
+    "level2": "精密装配",
+    "taskName": "插入橡胶瓶塞"
+  },
+  "xtac-umi-g1::install-compression-spring": {
+    "level1": "工作台场景",
+    "level2": "精密装配",
+    "taskName": "安装压缩弹簧到定位柱"
+  },
+  "xtac-umi-g1::loosen-cable-gland": {
+    "level1": "工作台场景",
+    "level2": "拆卸维修",
+    "taskName": "松开电缆格兰头并抽出线缆"
+  },
+  "xtac-umi-g1::operate-tape-measure": {
+    "level1": "工作台场景",
+    "level2": "工具操作",
+    "taskName": "卷尺拉出、锁止并控制回收"
+  },
+  "xtac-umi-g1::parts-sorting": {
+    "level1": "工作台场景",
+    "level2": "物料分拣",
+    "taskName": "混合零件分类"
+  },
+  "xtac-umi-g1::place-egg-into-tray": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "夹取鸡蛋放入蛋托"
+  },
+  "xtac-umi-g1::place-pen-into-holder": {
+    "level1": "办公场景",
+    "level2": "桌面整理",
+    "taskName": "文具插入笔筒"
+  },
+  "xtac-umi-g1::place-washer-onto-stud": {
+    "level1": "工作台场景",
+    "level2": "精密装配",
+    "taskName": "垫片套入螺柱并压到底"
+  },
+  "xtac-umi-g1::place-washer-with-tweezers": {
+    "level1": "工作台场景",
+    "level2": "工具操作",
+    "taskName": "使用镊子夹取并放置薄垫片"
+  },
+  "xtac-umi-g1::press-rubber-plug": {
+    "level1": "工作台场景",
+    "level2": "精密装配",
+    "taskName": "压入橡胶塞到孔位"
+  },
+  "xtac-umi-g1::put-headphones-into-case": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "耳机入盒收纳"
+  },
+  "xtac-umi-g1::remove-o-ring": {
+    "level1": "工作台场景",
+    "level2": "拆卸维修",
+    "taskName": "从轴槽中拆下O形圈"
+  },
+  "xtac-umi-g1::arrange-desk-items-a": {
+    "level1": "办公场景",
+    "level2": "桌面整理",
+    "taskName": "整理桌面小物件"
+  },
+  "xtac-umi-g1::arrange-desk-items-b": {
+    "level1": "办公场景",
+    "level2": "桌面整理",
+    "taskName": "整理桌面小物件"
+  },
+  "xtac-umi-g1::arrange-pen-set": {
+    "level1": "办公场景",
+    "level2": "桌面整理",
+    "taskName": "整理签字笔套装"
+  },
+  "xtac-umi-g1::fold-garment": {
+    "level1": "家庭场景",
+    "level2": "衣物织物",
+    "taskName": "折叠衣服"
+  },
+  "xtac-umi-g1::install-compression-spring-a": {
+    "level1": "工作台场景",
+    "level2": "精密装配",
+    "taskName": "安装压缩弹簧到定位柱"
+  },
+  "xtac-umi-g1::install-compression-spring-b": {
+    "level1": "工作台场景",
+    "level2": "精密装配",
+    "taskName": "安装压缩弹簧到定位柱"
+  },
+  "xtac-umi-g1::insert-locating-pin-a": {
+    "level1": "工作台场景",
+    "level2": "精密装配",
+    "taskName": "插入定位销到孔位"
+  },
+  "xtac-umi-g1::insert-locating-pin-b": {
+    "level1": "工作台场景",
+    "level2": "精密装配",
+    "taskName": "插入定位销到孔位"
+  },
+  "xtac-umi-g1::remove-oring-a": {
+    "level1": "工作台场景",
+    "level2": "拆卸维修",
+    "taskName": "从轴槽中拆下O形圈"
+  },
+  "xtac-umi-g1::remove-oring-b": {
+    "level1": "工作台场景",
+    "level2": "拆卸维修",
+    "taskName": "从轴槽中拆下O形圈"
+  },
+  "xtac-umi-g1::clean-test-tube-turn-upside-down": {
+    "level1": "工作台场景",
+    "level2": "实验操作",
+    "taskName": "清理试管"
+  },
+  "xtac-umi-g1::install-wire-harness": {
+    "level1": "工作台场景",
+    "level2": "精密装配",
+    "taskName": "安装线束到理线卡槽"
+  },
+  "xtac-umi-g1::pick-up-screw-place-into-bin": {
+    "level1": "工作台场景",
+    "level2": "物料分拣",
+    "taskName": "找螺钉"
+  },
+  "xtac-umi-g1::pick-up-test-tube-insert-into-test-tube-rack": {
+    "level1": "工作台场景",
+    "level2": "实验操作",
+    "taskName": "整理试管"
+  },
+  "xtac-umi-g1::remove-wire-harness": {
+    "level1": "工作台场景",
+    "level2": "拆卸维修",
+    "taskName": "从理线卡扣中拆出线束"
+  },
+  "xtac-umi-g1::stack-three-blocks": {
+    "level1": "家庭场景",
+    "level2": "日用品整理",
+    "taskName": "堆叠积木"
+  },
+  "taccap-g1::grasp-the-water-cup-and-twist-off-the-cup-lid-b": {
+    "level1": "办公场景",
+    "level2": "茶水区",
+    "taskName": "准备纸杯和水瓶"
+  },
+  "taccap-g1::grab-insert-usb-connector-into-port": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "插入USB设备"
+  },
+  "taccap-g1::insert-usb-connector-into-port": {
+    "level1": "办公场景",
+    "level2": "电子设备",
+    "taskName": "插入USB设备"
+  },
+  "taccap-g1::pick-up-qq-candy-b": {
+    "level1": "家庭场景",
+    "level2": "厨房餐桌",
+    "taskName": "夹取糖果并装碗"
+  }
+}
