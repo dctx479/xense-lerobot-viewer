@@ -318,7 +318,20 @@ describe("discoverLocalDatasets with a switched path", () => {
       "localInfoFields",
     );
 
+    discovery.datasets[0].annotation = {
+      models: ["test-model"],
+      annotated_at: null,
+      episodes_total: 2,
+      episodes_usable: 1,
+      spent_usd: 0,
+      outcomes: { completed: 1 },
+      episodes_with_findings: 0,
+      findings: [],
+    };
     const serialized = serializeLocalDatasetsResponseForClient(discovery);
+    expect(serialized.datasets[0].annotation).toEqual(
+      discovery.datasets[0].annotation,
+    );
     expect(serialized.datasets[0].localInfoFields).toBeUndefined();
     expect(Object.getOwnPropertyNames(serialized.datasets[0])).not.toContain(
       "localInfoFields",

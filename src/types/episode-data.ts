@@ -1,7 +1,6 @@
 import type { HistogramBinning } from "@/utils/episodeLengthHistogram";
 import type { SpatialTrajectoryData } from "@/utils/spatialTrajectories";
 import type { TcpFrameConvention } from "@/utils/taccapGripperTransforms";
-import type { LanguageAtom } from "./language.types";
 import type { VideoInfo } from "./video.types";
 
 export type { SpatialTrajectoryData } from "@/utils/spatialTrajectories";
@@ -84,13 +83,6 @@ export type EpisodeData = {
   ignoredColumns: string[];
   duration: number;
   task?: string;
-  /**
-   * v3.1 language atoms read from `language_persistent` and `language_events`
-   * (lerobot#3467). Empty when the dataset hasn't been annotated yet.
-   * The annotations panel uses this to seed its editor state when no
-   * annotation backend is running.
-   */
-  languageAtoms?: LanguageAtom[];
   /**
    * Sorted source-frame timestamps from the data parquet, in seconds. Used by
    * the annotations editor to snap atom timestamps to exact frame times,

@@ -1,3 +1,4 @@
+import type { AutoAnnotationDatasetSummary } from "@/types/auto-annotation.types";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -110,6 +111,12 @@ export type LocalDatasetSummary = {
    * without opening 542 datasets a second time. See `dataset-facets.ts`.
    */
   facets: DatasetFacets;
+  /**
+   * TacFlow's ④ automatic annotation summary, read from the corpus registry beside the dataset
+   * (`src/lib/auto-annotations.ts`). Attached by the homepage after discovery — the scanner itself never reads it —
+   * so it is absent on any other `discoverLocalDatasets` caller, and null when the dataset has none.
+   */
+  annotation?: AutoAnnotationDatasetSummary | null;
 };
 
 /**
@@ -189,6 +196,9 @@ export function serializeLocalDatasetSummaryForClient(
       ? { tasks: dataset.tasks.map((task) => ({ ...task })) }
       : {}),
     facets: { ...dataset.facets },
+    ...(dataset.annotation !== undefined
+      ? { annotation: dataset.annotation }
+      : {}),
   };
 }
 
