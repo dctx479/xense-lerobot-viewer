@@ -1,4 +1,17 @@
+import {
+  calendarDayDifference,
+  calendarDaySpanOverlaps,
+  CALENDAR_DAY_MS,
+  calendarDayStart,
+  calendarDayKey,
+  calendarDateTime,
+  calendarDateRange,
+  isCalendarDay,
+  parseCalendarTimestamp,
+  shiftCalendarDay,
+} from "@/utils/calendarTime";
 import type { LocalDatasetSummary } from "@/lib/local-datasets-discovery";
+
 import type { DateEvidence, DatasetFacets } from "@/lib/dataset-facets";
 import { getDatasetPrefix } from "@/utils/datasetGrouping";
 import { WORKBENCH_UPLOADER_NAMES } from "@/utils/workbenchUploaderNames";
@@ -177,50 +190,21 @@ export const WORKBENCH_IGNORED_ROBOT_IDS = new Set(["bi_taccap_0"]);
 
 export type WorkbenchOkrSymbol = "✅" | "❌" | "…" | "—";
 
-function parseDayKey(value: string): number | null {
-  const [year, month, day] = value.split("-").map(Number);
-  if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(month) ||
-    !Number.isInteger(day)
-  ) {
-    return null;
-  }
-  return Date.UTC(year, month - 1, day);
-}
-
-function dayKeyFromUtc(value: number): string {
-  return new Date(value).toISOString().slice(0, 10);
-}
-
-function dayKeyFromLocal(value: Date): string {
-  return [
-    value.getFullYear(),
-    String(value.getMonth() + 1).padStart(2, "0"),
-    String(value.getDate()).padStart(2, "0"),
-  ].join("-");
-}
-
 function suffixYear(lastModified: string | null | undefined): number {
-  const parsed = Date.parse(lastModified ?? "");
-  if (Number.isFinite(parsed)) return new Date(parsed).getUTCFullYear();
-  return new Date().getUTCFullYear();
+  const parsed = lastModified ? parseCalendarTimestamp(lastModified) : null;
+  return Number(calendarDayKey(parsed ?? new Date()).slice(0, 4));
 }
 
 function nextDayKey(value: string): string {
-  const parsed = parseDayKey(value);
-  return parsed === null ? value : dayKeyFromUtc(parsed + 86_400_000);
+  return isCalendarDay(value) ? shiftCalendarDay(value, 1) : value;
 }
 
 export function countHalfOpenDays(
   range: WorkbenchRollupDateRange,
 ): number | null {
   if (!range.startDate || !range.endDate) return null;
-  const start = parseDayKey(range.startDate);
-  const end = parseDayKey(range.endDate);
-  if (start === null || end === null) return null;
-  const [left, right] = start <= end ? [start, end] : [end, start];
-  return Math.floor((right - left) / 86_400_000);
+  const days = calendarDayDifference(range.startDate, range.endDate);
+  return days === null ? null : Math.abs(days);
 }
 
 export function getWorkbenchLeftSnTargetHours(
@@ -406,31 +390,28 @@ export function datasetHours(dataset: WorkbenchRollupDataset): number {
 }
 
 function isDayKey(value: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/u.test(value);
+  return isCalendarDay(value);
 }
 
 export function workbenchDayKey(lastModified?: string | null): string | null {
   const value = lastModified?.trim();
   if (!value) return null;
   if (isDayKey(value)) return value;
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed)) return null;
-  return dayKeyFromUtc(parsed);
+  const parsed = parseCalendarTimestamp(value);
+  if (parsed === null) return null;
+  return calendarDayKey(parsed);
 }
 
 export function getWorkbenchDefaultDateRange(
   now: Date = new Date(),
 ): WorkbenchRollupDateRange {
-  const endDate = dayKeyFromUtc(now.getTime());
-  const start = new Date(now);
-  start.setTime(start.getTime() - 86_400_000);
-  return { startDate: dayKeyFromUtc(start.getTime()), endDate };
+  return calendarDateRange("yesterday", now);
 }
 
 /** Workbench task grouping: leaf repo name with a trailing date suffix removed. */
 export function workbenchTaskPrefix(relativePath: string): string {
   const leaf = relativePath.split("/").filter(Boolean).at(-1) ?? relativePath;
-  return leaf.replace(/-(?:\d{6}|\d{4})$/u, "") || leaf || "—";
+  return leaf.replace(/-(?:\d{6}|\d{4})[A-Za-z]*$/u, "") || leaf || "—";
 }
 
 export function workbenchDatasetName(relativePath: string): string {
@@ -454,15 +435,12 @@ export function workbenchDatasetSuffixDay(
   const year = suffix.year ?? suffixYear(lastModified);
   const month = suffix.month;
   const day = suffix.day;
-  const candidate = new Date(Date.UTC(year, month - 1, day));
-  if (
-    candidate.getUTCFullYear() !== year ||
-    candidate.getUTCMonth() !== month - 1 ||
-    candidate.getUTCDate() !== day
-  ) {
-    return null;
-  }
-  return candidate.toISOString().slice(0, 10);
+  const candidate = [
+    String(year).padStart(4, "0"),
+    String(month).padStart(2, "0"),
+    String(day).padStart(2, "0"),
+  ].join("-");
+  return isCalendarDay(candidate) ? candidate : null;
 }
 
 export function hasWorkbenchDatasetDateSuffix(
@@ -472,15 +450,8 @@ export function hasWorkbenchDatasetDateSuffix(
   return workbenchDatasetSuffixDay(relativePath, lastModified) !== null;
 }
 
-function padWorkbenchDateTime(value: number): string {
-  return value.toString().padStart(2, "0");
-}
 function validDateKey(value: unknown): value is string {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) {
-    return false;
-  }
-  const parsed = parseDayKey(value);
-  return parsed !== null && dayKeyFromUtc(parsed) === value;
+  return isCalendarDay(value);
 }
 export function workbenchDatasetCaptureSpan(
   dataset: WorkbenchRollupDataset,
@@ -571,39 +542,23 @@ export function computeWorkbenchSelectedStorageBytes(
     return sum + (Number.isFinite(value) && value > 0 ? value : 0);
   }, 0);
 }
-function formatWorkbenchDateTimeLocal(value: Date): string {
-  return (
-    [
-      value.getFullYear(),
-      padWorkbenchDateTime(value.getMonth() + 1),
-      padWorkbenchDateTime(value.getDate()),
-    ].join("-") +
-    "T" +
-    padWorkbenchDateTime(value.getHours()) +
-    ":" +
-    padWorkbenchDateTime(value.getMinutes())
-  );
-}
 
 export function getWorkbenchDefaultDateTimeRange(
   now: Date = new Date(),
 ): WorkbenchDateTimeRange {
-  const end = new Date(now);
-  end.setHours(0, 0, 0, 0);
-  const start = new Date(end);
-  start.setDate(start.getDate() - 1);
+  const { startDate, endDate } = calendarDateRange("yesterday", now);
   return {
-    startDateTime: formatWorkbenchDateTimeLocal(start),
-    endDateTime: formatWorkbenchDateTimeLocal(end),
+    startDateTime: calendarDateTime(startDate),
+    endDateTime: calendarDateTime(endDate),
   };
 }
 
 /**
  * Choose the newest completed production day represented by daily additions.
  *
- * The current local day may still be receiving metadata-only uploads. It is
+ * The current UTC+8 day may still be receiving metadata-only uploads. It is
  * therefore excluded from the automatic range; operators can still select it
- * explicitly. The range is local-midnight to local-midnight so it can be passed
+ * explicitly. The range is UTC+8 midnight to midnight so it can be passed
  * directly to a datetime-local input without turning a UTC catalog timestamp
  * into a partial day.
  */
@@ -611,20 +566,15 @@ export function getWorkbenchLatestAvailableDateTimeRange(
   availableDays: readonly string[],
   fallbackNow: Date = new Date(),
 ): WorkbenchDateTimeRange {
-  const sortedDays = [...new Set(availableDays.filter(isDayKey))].sort();
-  const today = dayKeyFromLocal(fallbackNow);
-  const latestDay = sortedDays.filter((day) => day < today).at(-1);
+  const today = calendarDayKey(fallbackNow);
+  const latestDay = [...new Set(availableDays.filter(isCalendarDay))]
+    .sort()
+    .filter((day) => day < today)
+    .at(-1);
   if (!latestDay) return getWorkbenchDefaultDateTimeRange(fallbackNow);
-
-  const start = new Date(`${latestDay}T00:00:00`);
-  if (Number.isNaN(start.getTime())) {
-    return getWorkbenchDefaultDateTimeRange(fallbackNow);
-  }
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
   return {
-    startDateTime: formatWorkbenchDateTimeLocal(start),
-    endDateTime: formatWorkbenchDateTimeLocal(end),
+    startDateTime: calendarDateTime(latestDay),
+    endDateTime: calendarDateTime(shiftCalendarDay(latestDay, 1)),
   };
 }
 
@@ -632,31 +582,13 @@ export function getWorkbenchDateTimeRangeShortcut(
   shortcut: WorkbenchDateShortcut,
   now: Date = new Date(),
 ): WorkbenchDateTimeRange {
-  const end = new Date(now);
-  end.setHours(0, 0, 0, 0);
-  const start = new Date(end);
-
-  if (shortcut === "today") {
-    end.setDate(end.getDate() + 1);
-  } else if (shortcut === "yesterday") {
-    start.setDate(start.getDate() - 1);
-  } else if (shortcut === "last7Days") {
-    start.setDate(start.getDate() - 6);
-    end.setDate(end.getDate() + 1);
-  } else {
-    const mondayOffset = (end.getDay() + 6) % 7;
-    start.setDate(start.getDate() - mondayOffset);
-    if (shortcut === "lastWeek") {
-      end.setDate(start.getDate());
-      start.setDate(start.getDate() - 7);
-    } else {
-      end.setDate(end.getDate() + 1);
-    }
-  }
-
+  const { startDate, endDate } = calendarDateRange(
+    shortcut === "last7Days" ? "last7days" : shortcut,
+    now,
+  );
   return {
-    startDateTime: formatWorkbenchDateTimeLocal(start),
-    endDateTime: formatWorkbenchDateTimeLocal(end),
+    startDateTime: calendarDateTime(startDate),
+    endDateTime: calendarDateTime(endDate),
   };
 }
 
@@ -815,11 +747,11 @@ function workbenchDatasetAvailableDays(
   if (workbenchDatasetDateEvidence(dataset) === "none") return Array.from(days);
   const span = workbenchDatasetCaptureSpan(dataset);
   if (!span) return Array.from(days);
-  const start = parseDayKey(span.from);
-  const end = parseDayKey(span.to);
+  const start = calendarDayStart(span.from);
+  const end = calendarDayStart(span.to);
   if (start === null || end === null) return Array.from(days);
-  for (let value = start; value <= end; value += 86_400_000) {
-    days.add(dayKeyFromUtc(value));
+  for (let value = start; value <= end; value += CALENDAR_DAY_MS) {
+    days.add(calendarDayKey(value));
   }
   return Array.from(days);
 }
@@ -945,9 +877,7 @@ export function filterWorkbenchDatasetsByDate(
   return included.filter((dataset) => {
     const span = workbenchDatasetDateSpan(dataset);
     if (!span) return false;
-    const start = range.startDate ?? span.from;
-    const end = range.endDate ?? nextDayKey(span.to);
-    return span.to >= start && span.from < end;
+    return calendarDaySpanOverlaps(span.from, span.to, range);
   });
 }
 
@@ -1255,9 +1185,7 @@ function captureSpanOverlapsRange(
   span: WorkbenchCaptureSpan,
   range: WorkbenchRollupDateRange,
 ): boolean {
-  const start = range.startDate ?? span.from;
-  const end = range.endDate ?? nextDayKey(span.to);
-  return span.to >= start && span.from < end;
+  return calendarDaySpanOverlaps(span.from, span.to, range);
 }
 function synthesizedDatasetContribution(
   dataset: WorkbenchRollupDataset,

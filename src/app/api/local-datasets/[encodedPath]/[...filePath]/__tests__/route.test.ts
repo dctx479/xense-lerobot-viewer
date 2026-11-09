@@ -83,13 +83,21 @@ describe("local dataset file streaming", () => {
     expect((await GET(request(), context(["missing.mp4"]))).status).toBe(404);
   });
   test("aborting a request terminates the pending file read", async () => {
+    await fs.writeFile(
+      path.join(root, "video.mp4"),
+      Buffer.alloc(8 * 1024 * 1024),
+    );
     const controller = new AbortController();
     const response = await GET(
       request(undefined, controller.signal),
       context(),
     );
+    const reader = response.body!.getReader();
+    const first = await reader.read();
+    expect(first.done).toBe(false);
+    expect(first.value!.byteLength).toBeLessThan(8 * 1024 * 1024);
     controller.abort();
-    await expect(response.arrayBuffer()).rejects.toThrow();
+    await expect(reader.read()).rejects.toThrow();
   });
   test("pre-aborted full, range and HEAD requests return no body", async () => {
     const controller = new AbortController();

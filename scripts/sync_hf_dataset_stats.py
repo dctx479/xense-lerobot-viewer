@@ -483,17 +483,22 @@ def download_metadata(
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(cached, destination)
                 return filename, destination
-            try:
-                downloaded = hf_hub_download(
-                    repo_id=repo_id,
-                    filename=filename,
-                    repo_type="dataset",
-                    revision=revision,
-                    token=token,
-                    local_dir=tmpdir,
-                    local_files_only=True,
-                )
-            except Exception:
+            downloaded = None
+            # A cached main branch may predate the current remote metadata.
+            if revision:
+                try:
+                    downloaded = hf_hub_download(
+                        repo_id=repo_id,
+                        filename=filename,
+                        repo_type="dataset",
+                        revision=revision,
+                        token=token,
+                        local_dir=tmpdir,
+                        local_files_only=True,
+                    )
+                except Exception:
+                    pass
+            if downloaded is None:
                 downloaded = hf_hub_download(
                     repo_id=repo_id,
                     filename=filename,

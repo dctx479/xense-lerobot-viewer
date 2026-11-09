@@ -1002,6 +1002,7 @@ describe("Workbench statistics route", () => {
       ["xtac-umi-g1-install-wire-harness-260915", 383, 548_820, 30],
       ["xtac-umi-g1-operate-tape-measure-260915", 318, 455_760, 30],
       ["xtac-umi-g1-press-rubber-plug-260915", 221, 331_500, 30],
+      ["xtac-umi-g1-pick-up-screw-place-into-bin-261022", 12, 43_200, 10],
     ] as const;
     await writeCatalog("modelscope-catalog", {
       org: "TacVerse",
@@ -1048,28 +1049,29 @@ describe("Workbench statistics route", () => {
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
-      hubTotal: 3,
-      categoryTotal: 3,
+      hubTotal: 4,
+      categoryTotal: 4,
       localMatchedTotal: 0,
-      remoteStatisticsTotal: 3,
+      remoteStatisticsTotal: 4,
     });
-    expect(payload.datasets).toHaveLength(3);
+    expect(payload.datasets).toHaveLength(4);
     for (const [name, totalEpisodes, totalFrames] of datasets) {
       const row = payload.datasets.find(
         (dataset) => dataset.relativePath === `TacVerse/${name}`,
       );
       expect(row).toBeDefined();
+      const captureDay = name.endsWith("261022") ? "2026-10-22" : "2026-09-15";
       expect(row).toMatchObject({
         total_episodes: totalEpisodes,
         total_frames: totalFrames,
         hubRepoId: "XenseRobotics/TacVerse-Raw",
         hubPath: name,
-        capturedFrom: "2026-09-15",
+        capturedFrom: captureDay,
         collectorSerialNumber: "TCGU01A31Z0015B",
         remoteOnly: true,
         dailyAdditions: [
           {
-            day: "2026-09-15",
+            day: captureDay,
             episodes: totalEpisodes,
             frames: totalFrames,
           },
@@ -1080,7 +1082,7 @@ describe("Workbench statistics route", () => {
 
   test("matches nested ModelScope paths and uses explicit YYMMDD dates", async () => {
     const datasetPath =
-      "TacVerse/collection/xtac-umi-g1-install-wire-harness-260915";
+      "TacVerse/collection/xtac-umi-g1-install-wire-harness-260915b";
     await writeDataset(
       datasetPath,
       {
@@ -1116,7 +1118,7 @@ describe("Workbench statistics route", () => {
         {
           repoId: datasetPath,
           hubRepoId: "XenseRobotics/TacVerse-Raw",
-          hubPath: "collection/xtac-umi-g1-install-wire-harness-260915",
+          hubPath: "collection/xtac-umi-g1-install-wire-harness-260915b",
           totalEpisodes: 12,
           totalFrames: 43_200,
           fps: 10,
@@ -1144,7 +1146,7 @@ describe("Workbench statistics route", () => {
       expect.objectContaining({
         relativePath: datasetPath,
         hubRepoId: "XenseRobotics/TacVerse-Raw",
-        hubPath: "collection/xtac-umi-g1-install-wire-harness-260915",
+        hubPath: "collection/xtac-umi-g1-install-wire-harness-260915b",
         total_episodes: 12,
         total_frames: 43_200,
         durationHours: 1.2,

@@ -1,3 +1,4 @@
+import { isCalendarDay } from "@/utils/calendarTime";
 /* Hub catalog schema is shared with scripts/hf_catalog.py. */
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -93,7 +94,12 @@ function nonNegativeNumber(value: unknown): number {
 
 function dayFromLegacyYymmdd(value: unknown): string | null {
   if (typeof value !== "string" || !/^\d{6}$/u.test(value)) return null;
-  return `20${value.slice(0, 2)}-${value.slice(2, 4)}-${value.slice(4, 6)}`;
+  const day = [
+    "20" + value.slice(0, 2),
+    value.slice(2, 4),
+    value.slice(4, 6),
+  ].join("-");
+  return isCalendarDay(day) ? day : null;
 }
 
 function changeDay(row: HfChangeRow): string | null {

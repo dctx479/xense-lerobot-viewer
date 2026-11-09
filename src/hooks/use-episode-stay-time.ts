@@ -1,9 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { ReviewTimerProbe } from "@/utils/reviewDiagnosticsClient";
+import type { TimerState } from "@/types/review-diagnostics.types";
 import {
   EpisodeStayTimer,
   parseStoredEpisodeStayMs,
+  persistEpisodeStay,
   shouldTrackEpisodeStay,
 } from "@/utils/episodeStayTimer";
 
@@ -31,25 +34,33 @@ export function useEpisodeStayTime({
   const durationMs = Number.isSafeInteger(reportedDurationMs * 2)
     ? reportedDurationMs
     : 0;
-  const key = JSON.stringify([datasetKey, reviewer, episodeId]);
+  const { key, probe } = useMemo(
+    () => ({
+      key: JSON.stringify([datasetKey, reviewer, episodeId]),
+      probe: new ReviewTimerProbe(),
+    }),
+    [datasetKey, reviewer, episodeId],
+  );
   const storageKey = `xense-episode-stay:${key}`;
+  const readStaySnapshot = useCallback(() => {
+    const snapshot = timer.readInitialized(key, performance.now());
+    return durationMs > 0 && snapshot?.episode_duration_ms === durationMs
+      ? snapshot
+      : undefined;
+  }, [durationMs, key, timer]);
   const readStayMs = useCallback(
     () => timer.read(key, performance.now()).stay_ms,
     [key, timer],
   );
 
   useEffect(() => {
-    const persistAndPause = () => {
+    const persistAndPause = (state: TimerState = "disabled") => {
+      probe.transition(state);
       const now = performance.now();
-      timer.pause(now);
-      try {
-        sessionStorage.setItem(
-          storageKey,
-          JSON.stringify(timer.read(key, now)),
-        );
-      } catch {
-        /* Session storage may be disabled or full. */
-      }
+      const result = persistEpisodeStay(timer, key, now, (snapshot) =>
+        sessionStorage.setItem(storageKey, JSON.stringify(snapshot)),
+      );
+      if (result === "failed") probe.storageFailure("write");
     };
     const resume = () => {
       if (
@@ -60,27 +71,46 @@ export function useEpisodeStayTime({
           reviewSurfaceReady,
         })
       ) {
-        persistAndPause();
+        persistAndPause(
+          document.hidden
+            ? "hidden"
+            : !reviewer
+              ? "no_reviewer"
+              : !enabled
+                ? "disabled"
+                : "surface_not_ready",
+        );
       } else {
+        if (durationMs <= 0) {
+          persistAndPause("invalid_duration");
+          return;
+        }
         let initialStayMs = 0;
         try {
           initialStayMs = parseStoredEpisodeStayMs(
             sessionStorage.getItem(storageKey),
           );
+          if (initialStayMs > 0) probe.restored();
         } catch {
-          /* Treat invalid or unavailable session data as a fresh visit. */
+          probe.storageFailure("read");
         }
         timer.start(key, durationMs, performance.now(), initialStayMs);
+        probe.transition("tracking");
       }
     };
     const onVisibilityChange = () => {
-      if (document.hidden) persistAndPause();
+      if (document.hidden) persistAndPause("hidden");
       else resume();
     };
     resume();
     document.addEventListener("visibilitychange", onVisibilityChange);
+    const pageHide = () => persistAndPause("hidden");
+    window.addEventListener("pagehide", pageHide);
+    window.addEventListener("pageshow", resume);
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", pageHide);
+      window.removeEventListener("pageshow", resume);
       persistAndPause();
     };
   }, [
@@ -91,10 +121,13 @@ export function useEpisodeStayTime({
     reviewSurfaceReady,
     storageKey,
     timer,
+    probe,
   ]);
 
   return {
     episodeDurationMs: durationMs,
     readStayMs,
+    readStaySnapshot,
+    readDiagnostics: () => probe.read(),
   };
 }

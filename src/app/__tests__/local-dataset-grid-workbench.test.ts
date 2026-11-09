@@ -16,16 +16,22 @@ describe("Workbench entry locale contract", () => {
     expect(content).toContain(
       'import LanguageSwitcher from "@/components/language-switcher";',
     );
-    expect(content).toContain("<LanguageSwitcher />");
-    expect(content).toContain('t("workbench.backToCategories")');
-    expect(content).toContain('t("workbench.datasetsView")');
-    expect(content).toContain('t("workbench.panelTitle")');
+    expect(content).toContain('<LanguageSwitcher className="mt-1.5" />');
+    expect(content).toContain('t("home.subtitle")');
+    expect(content).toContain('tRich("home.browsing", {');
+    expect(content).toContain("<CorpusDashboard");
+    expect(content).toContain("onSelectSource={focusSource}");
   });
 
   test("keeps organization identity data rendered as values", async () => {
     const content = await source();
 
-    expect(content).toContain("{selectedPrefix}");
+    const dashboard = await fs.readFile(
+      path.join(process.cwd(), "src/components/corpus-dashboard.tsx"),
+      "utf8",
+    );
+    expect(dashboard).toContain('label: t("dash.allSources")');
+    expect(dashboard).toContain("({ id: s.prefix, label: s.prefix })");
     expect(content).not.toContain('t("workbench.robotId")');
     expect(content).not.toContain('t("workbench.robotType")');
     expect(content).not.toContain("translateDataset");

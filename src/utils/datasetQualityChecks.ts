@@ -67,7 +67,7 @@ export const DEFAULT_DATASET_QUALITY_THRESHOLDS: {
 } = {
   name_format: {
     regex:
-      "^TacVerse/taccap-g1-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*-(?:\\d{4}|\\d{6})$",
+      "^TacVerse/taccap-g1-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*-(?:\\d{4}|\\d{6})[A-Za-z]*$",
   },
   avg_duration: { min_sec: 20, max_sec: 600 },
   prompt: {

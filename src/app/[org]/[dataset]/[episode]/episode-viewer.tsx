@@ -243,11 +243,13 @@ export default function EpisodeViewer({
   dataset,
   episodeId,
   reviewBrowsePath,
+  episodeIndices,
 }: {
   reviewBrowsePath: string;
   org: string;
   dataset: string;
   episodeId: number;
+  episodeIndices?: number[];
 }) {
   const t = useT();
   const [data, setData] = useState<EpisodeData | null>(null);
@@ -400,6 +402,7 @@ export default function EpisodeViewer({
             episodeError={error}
             selectedEpisodeId={selectedEpisodeId}
             onEpisodeSelect={selectEpisode}
+            episodeIndices={episodeIndices}
           />
         </FlaggedEpisodesProvider>
       </EpisodeReviewsProvider>
@@ -415,6 +418,7 @@ function EpisodeViewerInner({
   episodeError,
   selectedEpisodeId,
   onEpisodeSelect,
+  episodeIndices,
 }: {
   data: EpisodeData;
   org?: string;
@@ -423,17 +427,22 @@ function EpisodeViewerInner({
   episodeError: string | null;
   selectedEpisodeId: number;
   onEpisodeSelect: (episodeId: number) => void;
+  episodeIndices?: number[];
 }) {
   const { t } = useLocale();
   const {
-    datasetInfo,
+    datasetInfo: rawDatasetInfo,
     episodeId,
     videosInfo,
     chartDataGroups,
     velocityChartDataGroups,
-    episodes,
+    episodes: dataEpisodeIndices,
     task,
   } = data;
+  const episodes = episodeIndices ?? dataEpisodeIndices;
+  const datasetInfo = episodeIndices?.length
+    ? { ...rawDatasetInfo, total_episodes: episodeIndices.length }
+    : rawDatasetInfo;
 
   const [videosReadyEpisodeId, setVideosReadyEpisodeId] = useState<
     number | null
@@ -1074,15 +1083,14 @@ function EpisodeViewerInner({
       } else if (key === "ArrowDown" || key === "ArrowUp") {
         if (inTextEntry) return;
         e.preventDefault();
-        const nextEpisodeId =
-          key === "ArrowDown" ? s.episodeId + 1 : s.episodeId - 1;
-        const lowestEpisodeId = s.episodes[0];
-        const highestEpisodeId = s.episodes[s.episodes.length - 1];
+        const currentIndex = s.episodes.indexOf(s.episodeId);
+        const nextIndex = currentIndex + (key === "ArrowDown" ? 1 : -1);
         if (
-          nextEpisodeId >= lowestEpisodeId &&
-          nextEpisodeId <= highestEpisodeId
+          currentIndex !== -1 &&
+          nextIndex >= 0 &&
+          nextIndex < s.episodes.length
         ) {
-          s.onEpisodeSelect(nextEpisodeId);
+          s.onEpisodeSelect(s.episodes[nextIndex]);
         }
       } else if (
         s.activeTab === "urdf" &&
@@ -1212,6 +1220,8 @@ function EpisodeViewerInner({
                   disabled={episodeTransitioning || !!episodeError}
                   episodeDurationMs={episodeStay.episodeDurationMs}
                   readStayMs={episodeStay.readStayMs}
+                  readStaySnapshot={episodeStay.readStaySnapshot}
+                  readDiagnostics={episodeStay.readDiagnostics}
                 />
               ) : null
             }

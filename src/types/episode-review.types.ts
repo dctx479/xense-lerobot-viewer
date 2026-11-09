@@ -1,4 +1,11 @@
 import { reviewTimestamp } from "@/utils/reviewTime";
+import { isReviewOperationId } from "./review-diagnostics.types";
+import {
+  parseReviewOperationReceipt,
+  MAX_DURABLE_REVIEW_RECEIPTS,
+  type DurableReviewOperationReceipt,
+  type ReviewOperationReceipt,
+} from "./review-operation.types";
 
 export const REVIEW_FILENAME = "episode-reviews.json";
 export const MAX_REVIEWER_LENGTH = 80;
@@ -30,6 +37,7 @@ export type EpisodeStaySnapshot = {
 };
 
 export interface EpisodeReview {
+  operation_id?: string;
   reviewer: string;
   reviewed_at: string;
   role?: ReviewerRole;
@@ -41,6 +49,7 @@ export interface EpisodeReview {
 export interface EpisodeReviewsFile {
   version: 1;
   episodes: Record<string, EpisodeReview[]>;
+  operation_receipts?: DurableReviewOperationReceipt[];
   updated_at?: string;
 }
 
@@ -51,6 +60,7 @@ export interface ReviewCollectionFile {
 }
 
 export interface EpisodeReviewsResponse {
+  operation?: ReviewOperationReceipt;
   file: EpisodeReviewsFile;
   reviewers: string[];
   profiles: ReviewerProfile[];
@@ -59,6 +69,7 @@ export interface EpisodeReviewsResponse {
 }
 
 export interface ReviewUpdate {
+  operation_id?: string;
   episode_index: number;
   reviewer: string;
   source: ReviewSource;
@@ -73,6 +84,8 @@ export function parseReviewUpdate(input: unknown): ReviewUpdate {
     throw new Error("A review object is required");
   }
   const raw = input as Record<string, unknown>;
+  if (raw.operation_id !== undefined && !isReviewOperationId(raw.operation_id))
+    throw new Error("Invalid review operation_id");
   if (
     typeof raw.episode_index !== "number" ||
     !Number.isSafeInteger(raw.episode_index) ||
@@ -117,6 +130,9 @@ export function parseReviewUpdate(input: unknown): ReviewUpdate {
   }
   return {
     episode_index: raw.episode_index,
+    ...(isReviewOperationId(raw.operation_id)
+      ? { operation_id: raw.operation_id }
+      : {}),
     reviewer: raw.reviewer.trim(),
     source: raw.source,
     reviewed: raw.reviewed,
@@ -179,6 +195,9 @@ export function parseReviewsFile(input: unknown): EpisodeReviewsFile {
       reviewers.add(validated.reviewer);
       return {
         reviewer: validated.reviewer,
+        ...(validated.operation_id
+          ? { operation_id: validated.operation_id }
+          : {}),
         source: validated.source,
         reviewed_at: reviewTimestamp(entry.reviewed_at),
         ...(entry.role ? { role: entry.role as ReviewerRole } : {}),
@@ -191,9 +210,31 @@ export function parseReviewsFile(input: unknown): EpisodeReviewsFile {
       };
     });
   }
+  let operationReceipts: DurableReviewOperationReceipt[] | undefined;
+  if (raw.operation_receipts !== undefined) {
+    if (
+      !Array.isArray(raw.operation_receipts) ||
+      raw.operation_receipts.length > MAX_DURABLE_REVIEW_RECEIPTS
+    )
+      throw new Error("Invalid review operation receipt history");
+    const seen = new Set<string>();
+    operationReceipts = raw.operation_receipts.map((item) => {
+      const receipt = parseReviewOperationReceipt(item);
+      if (
+        !receipt ||
+        !receipt.source ||
+        receipt.state === "pending" ||
+        seen.has(receipt.operation_id)
+      )
+        throw new Error("Invalid review operation receipt");
+      seen.add(receipt.operation_id);
+      return { ...receipt, source: receipt.source, state: receipt.state };
+    });
+  }
   return {
     version: 1,
     episodes,
+    ...(operationReceipts ? { operation_receipts: operationReceipts } : {}),
     ...(typeof raw.updated_at === "string"
       ? { updated_at: reviewTimestamp(raw.updated_at) }
       : {}),

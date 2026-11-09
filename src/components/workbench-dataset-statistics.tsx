@@ -1,7 +1,8 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { useT } from "@/context/locale-context";
+import { useLocale, useT } from "@/context/locale-context";
+import { formatCalendarDateTime } from "@/utils/calendarTime";
 import { formatCompact, formatEpisodeLength } from "@/utils/corpusStats";
 import {
   EMPTY_TACVERSE_HUB_CATEGORY_SELECTION,
@@ -121,7 +122,7 @@ export default function WorkbenchDatasetStatistics({
   ) => void;
   refreshToken?: number;
 }) {
-  const t = useT();
+  const { t, locale } = useLocale();
   const [payload, setPayload] =
     useState<TacverseDatasetStatisticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -212,7 +213,7 @@ export default function WorkbenchDatasetStatistics({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(
-              source === "modelscope" ? {} : { org: "TacVerse" },
+              source === "modelscope" ? {} : { org: "TacVerse", force: true },
             ),
             cache: "no-store",
           },
@@ -329,7 +330,7 @@ export default function WorkbenchDatasetStatistics({
           <p className="mt-1 text-[11px] text-slate-500">
             {t("workbench.hubCatalogVisible")}
             {payload.refreshedAt
-              ? ` · ${t("workbench.refreshed", { date: new Date(payload.refreshedAt).toLocaleString() })}`
+              ? ` · ${t("workbench.refreshed", { date: formatCalendarDateTime(payload.refreshedAt, locale === "zh" ? "zh-CN" : "en-US") })}`
               : ` · ${t("workbench.notRefreshed")}`}
           </p>
         </div>

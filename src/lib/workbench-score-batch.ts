@@ -1,3 +1,4 @@
+import { tryCalendarDayKey } from "@/utils/calendarTime";
 import path from "node:path";
 import type { LocalDatasetSummary } from "@/lib/local-datasets-discovery";
 import { getDatasetPrefix } from "@/utils/datasetGrouping";
@@ -30,17 +31,7 @@ export function normalizeWorkbenchScoreOrganization(
 }
 
 export function normalizeWorkbenchScoreDay(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  const day = /^\d{4}-\d{2}-\d{2}$/u.test(trimmed)
-    ? trimmed
-    : /^(\d{4}-\d{2}-\d{2})T(?:\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/u.exec(
-        trimmed,
-      )?.[1];
-  if (!day) return null;
-  const [year, month, date] = day.split("-").map(Number);
-  const parsed = new Date(Date.UTC(year, month - 1, date));
-  return parsed.toISOString().slice(0, 10) === day ? day : null;
+  return typeof value === "string" ? tryCalendarDayKey(value) : null;
 }
 
 export function scoreDatasetDay(
@@ -51,7 +42,7 @@ export function scoreDatasetDay(
   return (
     workbenchDatasetSuffixDay(dataset.relativePath, metadata?.lastModified) ??
     workbenchDayKey(metadata?.lastModified) ??
-    workbenchDatasetSuffixDay(dataset.relativePath, fallbackDay + "T00:00:00Z")
+    workbenchDatasetSuffixDay(dataset.relativePath, fallbackDay)
   );
 }
 

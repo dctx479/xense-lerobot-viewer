@@ -1,5 +1,6 @@
 "server-only";
 
+import { calendarDayKey } from "@/utils/calendarTime";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -651,7 +652,7 @@ export async function recordWorkbenchSharedEvent(
 export function workbenchSharedEventRemotePath(
   event: Pick<WorkbenchSharedEvent, "id" | "occurredAt">,
 ): string {
-  const day = normalizeUpdatedAt(event.occurredAt).slice(0, 10);
+  const day = calendarDayKey(normalizeUpdatedAt(event.occurredAt));
   const [year, month, date] = day.split("-");
   return "events/" + year + "/" + month + "/" + date + "/" + event.id + ".json";
 }
@@ -698,7 +699,7 @@ export async function markWorkbenchSharedEventsSent(
   root = resolveLocalDatasetRoot(),
 ): Promise<void> {
   for (const item of events) {
-    const day = item.event.occurredAt.slice(0, 10);
+    const day = calendarDayKey(item.event.occurredAt);
     const destinationDir = path.join(sharedRoot(root), SENT_DIR, day);
     await fs.mkdir(destinationDir, { recursive: true });
     await fs

@@ -383,6 +383,7 @@ def build_entry(
         and sha
         and not force
         and old.get("sha") == sha
+        and old.get("metadataState") not in {"error", "partial", "unknown"}
     ):
         entry = dict(old)
         entry["localState"] = local_state(root, repo_id)

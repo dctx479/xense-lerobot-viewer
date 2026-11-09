@@ -24,6 +24,13 @@ describe("bucketOf", () => {
 });
 
 describe("dateFromName", () => {
+  test.each(["261020", "261020b", "1020B"])(
+    "reads capture dates with the %s suffix",
+    (suffix) => {
+      expect(dateFromName(`taccap-g1-task-${suffix}`)).toBe("2026-10-20");
+    },
+  );
+
   test("reads an -MMDD suffix", () => {
     expect(dateFromName("taccap-g1-wipe-mirror-0822")).toBe("2026-08-22");
     expect(dateFromName("xtac-umi-g1-install-wire-harness-260915")).toBe(
@@ -35,6 +42,7 @@ describe("dateFromName", () => {
     expect(dateFromName("taccap-g1-wipe-mirror")).toBeNull();
     expect(dateFromName("taccap-g1-x-9999")).toBeNull(); // month 99
     expect(dateFromName("xtac-umi-g1-x-991331")).toBeNull();
+    expect(dateFromName("taccap-g1-x-260230b")).toBeNull();
   });
 });
 

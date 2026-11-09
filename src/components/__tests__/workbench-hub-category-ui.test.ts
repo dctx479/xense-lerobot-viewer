@@ -7,6 +7,20 @@ async function source(file: string): Promise<string> {
 }
 
 describe("Workbench Hub category UI contract", () => {
+  test("uses date-only midnight bounds without a hidden end-day conversion", async () => {
+    const grouping = await source("workbench-grouping-panel.tsx");
+    const review = await source("workbench-review-statistics.tsx");
+    expect(grouping.match(/type="date"/g)).toHaveLength(2);
+    expect(review.match(/type="date"/g)).toHaveLength(2);
+    expect(grouping).not.toContain('type="datetime-local"');
+    expect(grouping).toContain("calendarDateInputRange");
+    expect(grouping).toContain('t("workbench.endDate")');
+    expect(review).toContain('t("workbench.endDate")');
+    expect(grouping).toContain(
+      'url.searchParams.set("workbenchEnd", endDateTime)',
+    );
+  });
+
   test("owns the checkbox filter above both statistics views and hides it for checks", async () => {
     const parent = await source("dataset-review-panel.tsx");
     for (const key of [

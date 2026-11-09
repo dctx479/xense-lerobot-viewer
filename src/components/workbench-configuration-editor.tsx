@@ -1,5 +1,7 @@
 "use client";
 
+import { calendarDayKey } from "@/utils/calendarTime";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocale } from "@/context/locale-context";
 import type {
@@ -48,7 +50,7 @@ const ROLE_LABELS: Record<WorkbenchPersonRole, { en: string; zh: string }> = {
 };
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return calendarDayKey();
 }
 
 function cloneConfig(

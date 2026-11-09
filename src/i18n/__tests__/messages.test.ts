@@ -117,6 +117,10 @@ describe("zh translation coverage", () => {
     "urdf.worldAxes",
     // Pure formula — symbols and units only, nothing to translate.
     "doctor.speedFormula",
+    // Dataset identity format and English measurement units on the home groups.
+    "home.groupTitle",
+    "home.groupEpisodes",
+    "home.groupFrames",
     // Value + unit, and units render in English in both languages (see the
     // "writes units in English" test below), so these come out identical.
     "doctor.checksWord",

@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FiCloud, FiExternalLink, FiRefreshCw } from "react-icons/fi";
-import { useT } from "@/context/locale-context";
+import { useLocale } from "@/context/locale-context";
+import {
+  formatCalendarDateTime,
+  parseCalendarTimestamp,
+} from "@/utils/calendarTime";
 import type { InterpolationVars } from "@/i18n/format";
 import type { MessageKey } from "@/i18n/messages";
 
@@ -37,11 +41,13 @@ type Translator = (key: MessageKey, vars?: InterpolationVars) => string;
 function formatSyncTime(
   value: string | null | undefined,
   t: Translator,
+  locale: string,
 ): string {
   if (!value) return t("workbench.notSynchronized");
-  const date = new Date(value);
-  return Number.isFinite(date.getTime())
-    ? t("workbench.lastSync", { date: date.toLocaleString() })
+  return parseCalendarTimestamp(value) !== null
+    ? t("workbench.lastSync", {
+        date: formatCalendarDateTime(value, locale),
+      })
     : t("workbench.lastSyncUnavailable");
 }
 
@@ -67,7 +73,7 @@ export default function WorkbenchSharedSync({
   compact = false,
   onSynced,
 }: WorkbenchSharedSyncProps) {
-  const t = useT();
+  const { t, locale } = useLocale();
   const [status, setStatus] = useState<SharedSyncStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -160,7 +166,13 @@ export default function WorkbenchSharedSync({
               {t("workbench.sharedDescription")}
             </p>
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">
-              <span>{formatSyncTime(status?.lastSyncAt, t)}</span>
+              <span>
+                {formatSyncTime(
+                  status?.lastSyncAt,
+                  t,
+                  locale === "zh" ? "zh-CN" : "en-US",
+                )}
+              </span>
               <span>
                 {t("workbench.pendingLogs", {
                   count: status?.pendingEvents ?? 0,

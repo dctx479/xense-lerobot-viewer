@@ -1,5 +1,7 @@
 "use client";
 
+import { formatCalendarDateTime } from "@/utils/calendarTime";
+
 import {
   type ReactNode,
   useCallback,
@@ -181,16 +183,12 @@ function formatInteger(value: number | null | undefined): string {
 }
 
 function formatDateTime(value: string, locale: "en" | "zh"): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", {
+  return formatCalendarDateTime(value, locale === "zh" ? "zh-CN" : "en-US", {
     month: "short",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false,
-    timeZone: "Asia/Shanghai",
-  }).format(date);
+  });
 }
 
 function useReducedMotion(): boolean {
@@ -870,7 +868,7 @@ export default function TacVerseImpactDisplay({
   const exitingRef = useRef(false);
   const pausedRef = useRef(false);
 
-  const resetClock = useCallback((index: number) => {
+  const resetClock = useCallback(() => {
     const now = performance.now();
     startedAtRef.current = now;
     setElapsedMs(0);
@@ -880,7 +878,7 @@ export default function TacVerseImpactDisplay({
     (offset: number) => {
       setSlideIndex((current) => {
         const next = nextSlideIndex(current, offset, slides);
-        resetClock(next);
+        resetClock();
         return next;
       });
     },
@@ -922,7 +920,7 @@ export default function TacVerseImpactDisplay({
   }, []);
 
   useEffect(() => {
-    resetClock(slideIndex);
+    resetClock();
   }, [resetClock, slideIndex]);
 
   useEffect(() => {

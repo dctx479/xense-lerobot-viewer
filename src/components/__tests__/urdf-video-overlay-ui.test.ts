@@ -10,12 +10,17 @@ async function source(): Promise<string> {
 }
 
 describe("3D Replay video sizing", () => {
-  test("sizes defaults from the actual overlay width", async () => {
+  test("starts each group at its responsive maximum and reclamps on overlay resize", async () => {
     const overlay = await source();
     expect(overlay).toContain("ResizeObserver");
-    expect(overlay).toContain("overlay.getBoundingClientRect().width");
-    expect(overlay).toContain("clampWidth(overlayWidth * defaultWidthRatio)");
-    expect(overlay).toContain("defaultWidthRatio={0.3}");
-    expect(overlay).toContain("defaultWidthRatio={hasSingleHead ? 0.2 : 0.34}");
+    expect(overlay).toContain("parentElement?.getBoundingClientRect().width");
+    expect(overlay).toContain(
+      "Math.min(maxWidth, overlayWidth * maxWidthRatio)",
+    );
+    expect(overlay).toContain("setWidth(clampWidth(maxWidth))");
+    expect(overlay).toContain("observer.observe(overlay)");
+    expect(overlay.match(/maxWidthRatio=\{0\.34\}/g)).toHaveLength(2);
+    expect(overlay).toContain("maxWidthRatio={0.28}");
+    expect(overlay.match(/^\s+startMaximized$/gm)).toHaveLength(3);
   });
 });

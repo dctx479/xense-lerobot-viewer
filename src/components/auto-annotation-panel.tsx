@@ -1,5 +1,7 @@
 "use client";
 
+import { tryCalendarDayKey } from "@/utils/calendarTime";
+
 /**
  * Read-only view of TacFlow's ④ automatic annotation for the current episode.
  *
@@ -178,7 +180,9 @@ export function AutoAnnotationPanel({ encodedPath, episodeId, task }: Props) {
         </h3>
         <span className="ml-auto text-xs text-slate-500">
           {data.models.join(", ")}
-          {data.annotated_at ? ` · ${data.annotated_at.slice(0, 10)}` : ""}
+          {data.annotated_at
+            ? ` · ${tryCalendarDayKey(data.annotated_at) ?? "—"}`
+            : ""}
         </span>
         <p className="basis-full text-xs text-slate-500">
           {t("autoAnn.disclaimer")}

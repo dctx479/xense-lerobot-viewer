@@ -92,9 +92,11 @@ Other open viewers refresh on focus and every 30 seconds while visible; the
 homepage overview refreshes every 60 seconds while visible. Requests do not
 overlap and reads are aborted when the owning view unmounts. Writes merge under
 an exclusive lock and replace the JSON atomically; failures are shown without
-displaying an unsaved checkmark. If the server crashes while writing and leaves
-episode-reviews.json.lock behind, stop all viewer processes before removing
-that stale lock directory.
+displaying an unsaved checkmark. Recognized orphan locks recover on the next
+save. Empty legacy locks and dangling owner links require different operator
+recovery commands; follow the [lock recovery guide](docs/resource-lifecycle.md#review-write-locks-and-old-version-interoperability)
+and pause the relevant writers on every host first. Never delete the persistent
+episode-reviews.json.write-lock file; its presence does not mean it is locked.
 
 Resource handling preserves active playback: paused 3D scenes render on demand
 (including seeking, camera controls and asynchronously loaded models), active

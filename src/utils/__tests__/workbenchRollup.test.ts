@@ -80,6 +80,40 @@ describe("workbenchDatasetName", () => {
 });
 
 describe("workbench dataset date suffix", () => {
+  test.each(["261020", "261020b", "261020AB", "1020b"])(
+    "counts %s on its capture day and groups batches under the same task",
+    (suffix) => {
+      const relativePath = `TacVerse/taccap-g1-place-cup-${suffix}`;
+      const item = dataset(relativePath, {
+        lastModified: "2026-10-23T00:00:00Z",
+      });
+      const range = { startDate: "2026-10-20", endDate: "2026-10-21" };
+
+      expect(workbenchDatasetSuffixDay(relativePath, item.lastModified)).toBe(
+        "2026-10-20",
+      );
+      expect(workbenchTaskPrefix(relativePath)).toBe("taccap-g1-place-cup");
+      expect(computeWorkbenchRollup([item], "source", range)).toEqual([
+        expect.objectContaining({
+          group: "TacVerse/taccap-g1",
+          count: 1,
+          episodes: 10,
+          frames: 36_000,
+          hours: 1,
+        }),
+      ]);
+      expect(computeWorkbenchTimeline([item], range).rows).toEqual([
+        expect.objectContaining({ day: "2026-10-20", datasets: 1, hours: 1 }),
+      ]);
+      for (const outside of [
+        { startDate: "2026-10-19", endDate: "2026-10-20" },
+        { startDate: "2026-10-21", endDate: "2026-10-22" },
+      ]) {
+        expect(computeWorkbenchRollup([item], "source", outside)).toEqual([]);
+      }
+    },
+  );
+
   test("accepts repo leaves ending in a valid MMDD date", () => {
     expect(
       workbenchDatasetSuffixDay(
@@ -114,6 +148,11 @@ describe("workbench dataset date suffix", () => {
     expect(
       hasWorkbenchDatasetDateSuffix("TacVerse/xtac-umi-g1-bad-date-991331"),
     ).toBe(false);
+    for (const suffix of ["260230b", "2610200", "261020b2", "261020-repair"]) {
+      expect(
+        workbenchDatasetSuffixDay(`TacVerse/taccap-g1-task-${suffix}`),
+      ).toBeNull();
+    }
   });
 });
 
@@ -556,9 +595,9 @@ describe("Workbench overview metrics", () => {
 });
 
 describe("workbenchDayKey", () => {
-  test("normalizes ISO timestamps to a UTC day key", () => {
+  test("normalizes ISO timestamps to the shared UTC+8 day key", () => {
     expect(workbenchDayKey("2026-08-25T23:30:00+08:00")).toBe("2026-08-25");
-    expect(workbenchDayKey("2026-08-28T16:30:00Z")).toBe("2026-08-28");
+    expect(workbenchDayKey("2026-08-28T16:30:00Z")).toBe("2026-08-29");
   });
 
   test("rejects missing and invalid values", () => {

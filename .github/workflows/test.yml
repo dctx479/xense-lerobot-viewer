@@ -4,6 +4,7 @@ name: Tests
 # a filtered workflow never reports on PRs that miss the filter — those PRs would
 # sit at "pending" forever. The suite runs in ~15s, so gating every PR is cheap.
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -12,6 +13,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -30,3 +32,29 @@ jobs:
 
       - name: Run tests
         run: bun test
+
+      - name: Install browser test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Browser review recovery
+        run: bun run test:review-save
+
+      - name: Browser playback regression
+        run: bun run test:video-playback
+
+      - name: Python regression
+        run: |
+          if compgen -G "scripts/test_*.py" > /dev/null; then
+            python3 -m unittest discover -s scripts -p 'test_*.py'
+          fi
+          if compgen -G "scripts/mail-smoke-test/test_*.py" > /dev/null; then
+            python3 -m unittest discover -s scripts/mail-smoke-test -p 'test_*.py'
+          fi
+
+      - name: Build production
+        run: bun run build
+
+      - name: Production review fault checks
+        run: bun run test:review-production

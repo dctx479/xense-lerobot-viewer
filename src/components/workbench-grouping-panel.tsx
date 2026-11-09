@@ -1,6 +1,14 @@
 "use client";
 
 import {
+  calendarDayKey,
+  calendarDateTime,
+  calendarDateInputRange,
+  parseCalendarTimestamp,
+  tryCalendarDayKey,
+} from "@/utils/calendarTime";
+
+import {
   Fragment,
   useCallback,
   useEffect,
@@ -50,6 +58,7 @@ import {
   getWorkbenchDateTimeRangeShortcut,
   getWorkbenchLatestAvailableDateTimeRange,
   getWorkbenchOkrAchievementRate,
+  filterWorkbenchDatasetsByDate,
   isWorkbenchIgnoredRobotId,
   normalizeWorkbenchDateRange,
   workbenchAdditionAvailableDays,
@@ -98,6 +107,7 @@ import {
   type WorkbenchStatisticsFilterSummary,
 } from "@/utils/workbenchStatisticsFilter";
 import WorkbenchDisplay from "@/components/workbench-display";
+import WorkbenchScenarioClassifier from "@/components/workbench-scenario-classifier";
 import {
   isWorkbenchOrganizationDisplayPath,
   requestWorkbenchDisplayFullscreen,
@@ -357,11 +367,8 @@ function formatCount(value: number): string {
 }
 
 function formatDataUpdatedAt(value: string | null): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  const pad = (part: number) => String(part).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const time = value ? parseCalendarTimestamp(value) : null;
+  return time === null ? "—" : calendarDateTime(time).replace("T", " ");
 }
 
 function parseNonNegativeNumber(value: string): number {
@@ -539,8 +546,7 @@ function validateRewardDraft(
 }
 
 function dayKeyFromDateTimeInput(value: string): string | null {
-  const match = value.trim().match(/^(\d{4}-\d{2}-\d{2})/u);
-  return match?.[1] ?? null;
+  return tryCalendarDayKey(value);
 }
 
 function hubSourceBadge(
@@ -793,6 +799,9 @@ export default function WorkbenchGroupingPanel({
     remoteStatisticsTotal: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [activeWorkbenchView, setActiveWorkbenchView] = useState<
+    "dashboard" | "scenarios"
+  >("dashboard");
   const [error, setError] = useState<string | null>(null);
   const [localRefreshToken, setLocalRefreshToken] = useState(0);
   const [dataUpdatedAt, setDataUpdatedAt] = useState<string | null>(null);
@@ -1111,6 +1120,19 @@ export default function WorkbenchGroupingPanel({
         availableDays,
       ),
     [availableDays, endDateTime, startDateTime],
+  );
+  const dateInputs = calendarDateInputRange({
+    startDate: dayKeyFromDateTimeInput(startDateTime),
+    endDate: dayKeyFromDateTimeInput(endDateTime),
+  });
+  const selectedDates = calendarDateInputRange(range);
+  const scenarioDateFilteredDatasets = useMemo(
+    () =>
+      filterWorkbenchDatasetsByDate(sourceFilteredDatasets, {
+        startDate: range.startDate,
+        endDate: range.endDate,
+      }),
+    [range.endDate, range.startDate, sourceFilteredDatasets],
   );
   const rangeDays = countHalfOpenDays(range);
   const targetHours = countWorkbenchRewardTargetHours(
@@ -1778,12 +1800,7 @@ export default function WorkbenchGroupingPanel({
         },
       ].filter((group) => group.emails.length > 0);
     }
-    const now = new Date();
-    const sendingDay = [
-      now.getFullYear(),
-      String(now.getMonth() + 1).padStart(2, "0"),
-      String(now.getDate()).padStart(2, "0"),
-    ].join("-");
+    const sendingDay = calendarDayKey();
     const emails = workbenchPersonnelEmailGroups(configuration, sendingDay);
     const definitions = [
       ["data-collectors", "data_collector", t("workbench.dataCollectors")],
@@ -2006,7 +2023,8 @@ export default function WorkbenchGroupingPanel({
     ),
   );
   const heatmapEndDateLabel =
-    workstationHeatmapRange.endDate ?? t("workbench.latest");
+    calendarDateInputRange(workstationHeatmapRange).endDate ||
+    t("workbench.latest");
 
   const replayDataset = useMemo(
     () =>
@@ -2305,29 +2323,47 @@ export default function WorkbenchGroupingPanel({
             <label className="flex min-w-0 flex-col gap-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500">
               <span>{t("workbench.startDate")}</span>
               <input
-                type="datetime-local"
-                value={startDateTime}
-                max={endDateTime || undefined}
-                step={60}
+                type="date"
+                value={dateInputs.startDate}
+                max={dateInputs.endDate || undefined}
                 disabled={availableDays.length === 0}
-                onChange={(event) => setStartDateTime(event.target.value)}
+                onChange={(event) =>
+                  setStartDateTime(
+                    event.target.value
+                      ? calendarDateTime(event.target.value)
+                      : "",
+                  )
+                }
                 className="h-10 rounded-lg border border-white/10 bg-[var(--surface-0)]/70 px-3 text-xs font-normal normal-case tracking-normal text-slate-200 transition-colors focus:border-cyan-400/70 focus:outline-none disabled:opacity-50"
               />
             </label>
             <label className="flex min-w-0 flex-col gap-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500">
               <span>{t("workbench.endDate")}</span>
               <input
-                type="datetime-local"
-                value={endDateTime}
-                min={startDateTime || undefined}
-                step={60}
+                type="date"
+                value={dateInputs.endDate}
+                min={dateInputs.startDate || undefined}
                 disabled={availableDays.length === 0}
-                onChange={(event) => setEndDateTime(event.target.value)}
+                onChange={(event) => {
+                  const { endDate } = calendarDateInputRange({
+                    endDate: event.target.value,
+                  });
+                  setEndDateTime(endDate ? calendarDateTime(endDate) : "");
+                }}
                 className="h-10 rounded-lg border border-white/10 bg-[var(--surface-0)]/70 px-3 text-xs font-normal normal-case tracking-normal text-slate-200 transition-colors focus:border-cyan-400/70 focus:outline-none disabled:opacity-50"
               />
             </label>
           </div>
 
+          <p className="mt-2 text-[11px] leading-5 text-slate-400">
+            {t("workbench.calendarHint")}
+          </p>
+          {dateInputs.startDate &&
+            dateInputs.startDate === dateInputs.endDate && (
+              <p role="status" className="mt-2 text-xs text-amber-300">
+                {t("workbench.emptyDateRangeHint")}
+              </p>
+            )}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className="mr-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
               {t("workbench.quickRange")}
@@ -2480,6 +2516,28 @@ export default function WorkbenchGroupingPanel({
       )}
       <WorkbenchStatisticsFilterNotice filter={statisticsFilter} />
 
+      <nav
+        aria-label="Workbench 页面"
+        className="flex flex-wrap items-center gap-1 border-b border-white/10"
+      >
+        {(
+          [
+            ["dashboard", "运营看板"],
+            ["scenarios", "场景分类"],
+          ] as const
+        ).map(([view, label]) => (
+          <button
+            key={view}
+            type="button"
+            aria-current={activeWorkbenchView === view ? "page" : undefined}
+            onClick={() => setActiveWorkbenchView(view)}
+            className={`border-b-2 px-4 py-2.5 text-xs font-medium transition-colors ${activeWorkbenchView === view ? "border-cyan-300 text-cyan-100" : "border-transparent text-slate-400 hover:text-slate-200"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
       {error && (
         <div className="rounded-md border border-amber-400/25 bg-amber-400/5 p-3 text-xs text-amber-200">
           {error}
@@ -2492,838 +2550,887 @@ export default function WorkbenchGroupingPanel({
         </div>
       ) : (
         <>
-          <section
-            aria-labelledby="workbench-overview-title"
-            className="rounded-xl border border-cyan-400/20 bg-gradient-to-br from-cyan-400/[0.06] via-[var(--surface-1)]/45 to-[var(--surface-0)]/40 p-4 shadow-[0_16px_38px_rgba(8,15,30,0.16)] sm:p-5"
-          >
-            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-300/70">
-                  {t("workbench.liveSnapshot")}
-                </div>
-                <h4
-                  id="workbench-overview-title"
-                  className="mt-1 text-sm font-semibold text-slate-200"
-                >
-                  {t("workbench.operationsOverview")}
-                </h4>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  {t("workbench.overviewHint")}
-                </p>
-              </div>
-              <span className="rounded-full border border-cyan-400/15 bg-cyan-400/[0.05] px-2.5 py-1 text-[10px] text-cyan-200/75">
-                {range.startDate && range.endDate
-                  ? range.startDate + " → " + range.endDate
-                  : t("workbench.autoRange")}
-              </span>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {[
-                [
-                  t("workbench.organizationTotalHours"),
-                  organizationTotalHours.toLocaleString("en-US", {
-                    minimumFractionDigits: 1,
-                    maximumFractionDigits: 1,
-                  }) + " h",
-                ],
-                [
-                  t("workbench.selectedRangeHours"),
-                  formatHours(totalHours) + " h",
-                ],
-                [t("common.episodes"), formatCount(totalEpisodes)],
-                [t("common.tasks"), formatCount(selectedDatasetPaths.length)],
-                [t("common.storage"), formatBytes(selectedStorageBytes)],
-                [
-                  t("workbench.dailyTargetHours"),
-                  formatHours(rewardDraft.dailyTargetHours) + " h/day",
-                ],
-                [
-                  t("workbench.totalBonus"),
-                  formatWorkbenchRewardAmount(projectedRewardAmount),
-                ],
-                [t("workbench.sourcesCount"), formatCount(robotIds)],
-                [
-                  t("workbench.daysInRange"),
-                  rangeDays === null ? "—" : formatCount(rangeDays),
-                ],
-              ].map(([label, value], index) => (
-                <div
-                  key={label}
-                  className={
-                    index < 2
-                      ? "rounded-lg border border-cyan-400/30 bg-cyan-400/[0.09] p-4 shadow-[inset_0_1px_rgba(165,243,252,0.12)]"
-                      : "rounded-lg border border-white/10 bg-[var(--surface-0)]/45 p-4"
-                  }
-                >
-                  <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
-                    {label}
-                  </div>
-                  <div
-                    className={
-                      index < 2
-                        ? "mt-2 text-2xl font-semibold tracking-tight text-cyan-100 tabular-nums"
-                        : "mt-2 text-xl font-semibold tracking-tight text-slate-100 tabular-nums"
-                    }
-                  >
-                    {value}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="rounded-md border border-white/10 bg-[var(--surface-1)]/35 p-4">
-            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-              <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
-                  {t("workbench.workstationDetail")}
-                </h4>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  {t("workbench.workstationDetailHint")}
-                </p>
-              </div>
-              <span className="text-[10px] text-slate-500">
-                {workstationDashboardRows.length === 0
-                  ? t("workbench.noGroupedRows")
-                  : `${workstationDashboardRows.length} ${t("workbench.workstation")}`}
-              </span>
-            </div>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <label className="flex min-w-[14rem] flex-1 items-center gap-2 rounded-md border border-white/10 bg-black/10 px-2.5 py-1.5 text-[11px] text-slate-500">
-                <span className="shrink-0">{t("workbench.filter")}</span>
-                <input
-                  value={workstationQuery}
-                  onChange={(event) => setWorkstationQuery(event.target.value)}
-                  placeholder={t("workbench.rowFilterPlaceholder")}
-                  className="min-w-0 flex-1 bg-transparent text-slate-200 outline-none placeholder:text-slate-600"
-                  aria-label={t("workbench.filterWorkstationRows")}
-                />
-              </label>
-              <label className="flex items-center gap-2 text-[11px] text-slate-500">
-                {t("workbench.sort")}
-                <select
-                  value={workstationSort}
-                  onChange={(event) =>
-                    setWorkstationSort(
-                      event.target.value as
-                        | "reward"
-                        | "hours"
-                        | "robot"
-                        | "datasets",
-                    )
-                  }
-                  className="rounded-md border border-white/10 bg-[var(--surface-0)] px-2 py-1.5 text-slate-200 outline-none"
-                  aria-label={t("workbench.sortWorkstationRows")}
-                >
-                  <option value="reward">{t("workbench.reward")}</option>
-                  <option value="hours">{t("common.hours")}</option>
-                  <option value="datasets">{t("workbench.datasets")}</option>
-                  <option value="robot">{t("workbench.workstation")}</option>
-                </select>
-              </label>
-              <button
-                type="button"
-                onClick={exportWorkbenchCsv}
-                className="rounded-md border border-cyan-400/25 bg-cyan-400/[0.06] px-2.5 py-1.5 text-[11px] font-medium text-cyan-200 transition-colors hover:border-cyan-300/60 hover:bg-cyan-400/[0.12]"
+          {activeWorkbenchView === "scenarios" ? (
+            <WorkbenchScenarioClassifier
+              organization={organization}
+              datasets={scenarioDateFilteredDatasets}
+              filenameFilter={
+                selectedDates.startDate && selectedDates.endDate
+                  ? `${selectedDates.startDate}-${selectedDates.endDate}`
+                  : ""
+              }
+              filenameDate={calendarDayKey().replaceAll("-", "")}
+            />
+          ) : (
+            <>
+              <section
+                aria-labelledby="workbench-overview-title"
+                className="rounded-xl border border-cyan-400/20 bg-gradient-to-br from-cyan-400/[0.06] via-[var(--surface-1)]/45 to-[var(--surface-0)]/40 p-4 shadow-[0_16px_38px_rgba(8,15,30,0.16)] sm:p-5"
               >
-                {t("workbench.exportCsv")}
-              </button>
-              <button
-                type="button"
-                onClick={() => void copyWorkbenchShareLink()}
-                className="rounded-md border border-white/10 bg-white/[0.025] px-2.5 py-1.5 text-[11px] font-medium text-slate-300 transition-colors hover:border-cyan-300/50 hover:text-cyan-100"
-              >
-                {t("workbench.copyShareLink")}
-              </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] border-collapse text-left text-xs">
-                <thead className="bg-[var(--surface-2)] text-slate-400">
-                  <tr>
-                    <th className="px-3 py-2.5 font-medium">
-                      {t("workbench.workstation")}
-                    </th>
-                    <th className="px-3 py-2.5 font-medium">
-                      {t("workbench.personnel")}
-                    </th>
-                    <th className="px-3 py-2.5 font-medium">
-                      {t("workbench.sourceRepos")}
-                    </th>
-                    <th className="px-3 py-2.5 font-medium">
-                      {t("workbench.datasets")}
-                    </th>
-                    <th
-                      className="px-3 py-2.5 font-medium"
-                      title={t("workbench.workstationHours")}
+                <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-300/70">
+                      {t("workbench.liveSnapshot")}
+                    </div>
+                    <h4
+                      id="workbench-overview-title"
+                      className="mt-1 text-sm font-semibold text-slate-200"
                     >
-                      {t("workbench.workstationHours")}
-                    </th>
-                    <th
-                      className="px-3 py-2.5 font-medium"
-                      title={t("workbench.perPersonTargetHours")}
-                    >
-                      {t("workbench.perPersonTargetHours")}
-                    </th>
-                    <th className="px-3 py-2.5 font-medium">
-                      {t("workbench.rate")}
-                    </th>
-                    <th className="px-3 py-2.5 font-medium">
-                      {t("workbench.rule")}
-                    </th>
-                    <th className="px-3 py-2.5 font-medium">
-                      {t("workbench.avgPerEpisode")}
-                    </th>
-                    <th className="px-3 py-2.5 font-medium">
-                      {t("workbench.reward")}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleRobotDashboardRows.map((row) => (
-                    <tr
-                      key={`${row.workstation}-${row.group}`}
-                      className="cursor-pointer border-t border-white/5 transition-colors hover:bg-cyan-400/[0.04] focus:bg-cyan-400/[0.06] focus:outline-none"
-                      tabIndex={0}
-                      role="button"
-                      onClick={(event) => {
-                        if (
-                          event.target instanceof Element &&
-                          event.target.closest("button,a,input,select")
-                        ) {
-                          return;
-                        }
-                        openWorkbenchDrilldown({
-                          title: `${row.workstation} ${t("workbench.workstationDetail")}`,
-                          detail: `${row.workstation} · ${formatHours(row.hours)} ${t("common.hours")} · ${formatCount(row.count)} ${t("workbench.datasets")}`,
-                          datasets: datasetsForWorkstation(row.workstation),
-                          episodeId: 0,
-                        });
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openWorkbenchDrilldown({
-                            title: `${row.workstation} ${t("workbench.workstationDetail")}`,
-                            detail: `${row.workstation} · ${formatHours(row.hours)} ${t("common.hours")} · ${formatCount(row.count)} ${t("workbench.datasets")}`,
-                            datasets: datasetsForWorkstation(row.workstation),
-                            episodeId: 0,
-                          });
-                        }
-                      }}
-                    >
-                      <td
-                        className="cursor-help px-3 py-2.5 text-slate-100"
-                        title={`${t("workbench.workstation")}: ${row.workstation}`}
-                      >
-                        {row.workstation}
-                      </td>
-                      <td
-                        className="px-3 py-2.5 text-slate-300"
-                        title={
-                          personnelByWorkstation
-                            .get(row.workstation)
-                            ?.join(", ") ||
-                          t("workbench.noPersonnelMappingShort")
-                        }
-                      >
-                        {personnelByWorkstation
-                          .get(row.workstation)
-                          ?.join(", ") || "—"}
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-300">
-                        <SourceReposCell repos={row.sourceRepos} />
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-300 tabular-nums">
-                        {formatCount(row.count)}
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-300 tabular-nums">
-                        {formatHours(row.hours)}
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-300 tabular-nums">
-                        {targetLabel}
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-300 tabular-nums">
-                        {formatRate(
-                          getWorkbenchOkrAchievementRate(
-                            row.hours,
-                            targetHours ?? 0,
-                          ),
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-300 tabular-nums">
-                        <WorkbenchRuleBadge
-                          label={row.reward.level?.label}
-                          symbol={row.reward.symbol}
-                        />
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-300 tabular-nums">
-                        {formatWorkbenchAverageEpisode(row.reward)}
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-300 tabular-nums">
-                        {formatWorkbenchRewardAmount(row.reward.amount)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {visibleRobotDashboardRows.length === 0 && (
-              <p className="mt-3 text-xs text-slate-500">
-                {t("workbench.noWorkstationFilterMatch")}
-              </p>
-            )}
-          </section>
-
-          <WorkbenchPersonnelWorkload rollup={personnelRollup} />
-
-          <section className="rounded-md border border-white/10 bg-[var(--surface-1)]/35 p-4">
-            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
-                {t("workbench.workstationDayHeatmap")}
-              </h4>
-              <span className="text-[10px] text-slate-500">
-                {heatmapDays.length === 0
-                  ? t("workbench.noDataSince", { date: "2026-08-22" })
-                  : "2026-08-22 → " +
-                    (workstationHeatmapRange.endDate ?? t("workbench.latest")) +
-                    " · " +
-                    heatmapDays.length +
-                    ` ${t("workbench.latestDataDays")}`}
-              </span>
-            </div>
-            {heatmapDays.length === 0 ? (
-              <div className="rounded-md border border-white/10 bg-white/[0.02] p-4 text-xs text-slate-500">
-                {t("workbench.noWorkstationDayDataFrom", {
-                  date: "2026-08-22",
-                  end: heatmapEndDateLabel,
-                })}
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <div
-                  className="min-w-[760px]"
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns:
-                      "minmax(13rem, 1.4fr) repeat(" +
-                      heatmapDays.length +
-                      ", minmax(3.5rem, 1fr))",
-                  }}
-                >
-                  <div className="border-b border-white/10 px-3 py-2 text-[10px] uppercase tracking-[0.14em] text-slate-500">
-                    {t("workbench.workstation")}
+                      {t("workbench.operationsOverview")}
+                    </h4>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {t("workbench.overviewHint")}
+                    </p>
                   </div>
-                  {heatmapDays.map((day) => (
+                  <span className="rounded-full border border-cyan-400/15 bg-cyan-400/[0.05] px-2.5 py-1 text-[10px] text-cyan-200/75">
+                    {selectedDates.startDate && selectedDates.endDate
+                      ? selectedDates.startDate + " → " + selectedDates.endDate
+                      : t("workbench.autoRange")}
+                  </span>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {[
+                    [
+                      t("workbench.organizationTotalHours"),
+                      organizationTotalHours.toLocaleString("en-US", {
+                        minimumFractionDigits: 1,
+                        maximumFractionDigits: 1,
+                      }) + " h",
+                    ],
+                    [
+                      t("workbench.selectedRangeHours"),
+                      formatHours(totalHours) + " h",
+                    ],
+                    [t("common.episodes"), formatCount(totalEpisodes)],
+                    [
+                      t("common.tasks"),
+                      formatCount(selectedDatasetPaths.length),
+                    ],
+                    [t("common.storage"), formatBytes(selectedStorageBytes)],
+                    [
+                      t("workbench.dailyTargetHours"),
+                      formatHours(rewardDraft.dailyTargetHours) + " h/day",
+                    ],
+                    [
+                      t("workbench.totalBonus"),
+                      formatWorkbenchRewardAmount(projectedRewardAmount),
+                    ],
+                    [t("workbench.sourcesCount"), formatCount(robotIds)],
+                    [
+                      t("workbench.daysInRange"),
+                      rangeDays === null ? "—" : formatCount(rangeDays),
+                    ],
+                  ].map(([label, value], index) => (
                     <div
-                      key={day}
-                      className="border-b border-white/10 px-2 py-2 text-center text-[10px] uppercase tracking-[0.12em] text-slate-500 tabular-nums"
+                      key={label}
+                      className={
+                        index < 2
+                          ? "rounded-lg border border-cyan-400/30 bg-cyan-400/[0.09] p-4 shadow-[inset_0_1px_rgba(165,243,252,0.12)]"
+                          : "rounded-lg border border-white/10 bg-[var(--surface-0)]/45 p-4"
+                      }
                     >
-                      {day.slice(5)}
+                      <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
+                        {label}
+                      </div>
+                      <div
+                        className={
+                          index < 2
+                            ? "mt-2 text-2xl font-semibold tracking-tight text-cyan-100 tabular-nums"
+                            : "mt-2 text-xl font-semibold tracking-tight text-slate-100 tabular-nums"
+                        }
+                      >
+                        {value}
+                      </div>
                     </div>
                   ))}
-                  {heatmapRows.map((row) => (
-                    <Fragment key={row.workstation}>
-                      <div className="border-b border-white/5 px-3 py-2 text-xs text-slate-200">
-                        <div className="truncate font-medium">
-                          {row.workstation}
-                        </div>
-                      </div>
-                      {heatmapDays.map((day) => {
-                        const hours = row.hoursByDay[day] ?? 0;
-                        const alpha =
-                          hours <= 0
-                            ? 0.03
-                            : Math.min(
-                                0.85,
-                                0.08 + (hours / heatmapMaxHours) * 0.75,
-                              );
-                        return (
-                          <button
-                            type="button"
-                            key={row.workstation + "-" + day}
-                            className="border-b border-white/5 px-2 py-2 text-center text-xs tabular-nums text-slate-100 transition-colors hover:bg-cyan-200/20 focus:bg-cyan-200/25 focus:outline-none"
-                            style={{
-                              backgroundColor:
-                                "rgba(56, 189, 248, " + alpha + ")",
-                            }}
-                            onClick={() =>
-                              openWorkbenchDrilldown({
-                                title: row.workstation + " · " + day,
-                                detail:
-                                  row.workstation +
-                                  " · " +
-                                  formatHours(hours) +
-                                  " " +
-                                  t("common.hours"),
-                                day,
-                                datasets: sourceFilteredLocalDatasets.filter(
-                                  (dataset) => {
-                                    return (
-                                      workstationForDatasetDay(dataset, day) ===
-                                        row.workstation &&
-                                      workbenchDatasetRangeContributions(
-                                        dataset,
-                                        workstationHeatmapRange,
-                                      ).some((addition) => addition.day === day)
-                                    );
-                                  },
-                                ),
-                                episodeId: 0,
-                              })
-                            }
-                            title={
-                              row.workstation +
-                              " " +
-                              day +
-                              ": " +
-                              formatHours(hours) +
-                              "h"
-                            }
-                          >
-                            {hours > 0 ? formatHours(hours) : "—"}
-                          </button>
-                        );
-                      })}
-                    </Fragment>
-                  ))}
                 </div>
-              </div>
-            )}
-          </section>
+              </section>
 
-          <section className="rounded-md border border-white/10 bg-[var(--surface-1)]/35 p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
-                  {t("workbench.topGroups")}
-                </h4>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  {t("workbench.workstation")} ·{" "}
-                  {range.startDate ?? t("workbench.beginning")} →{" "}
-                  {range.endDate ?? t("workbench.latest")}
-                </p>
-              </div>
-            </div>
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={selectedChartRows} layout="vertical">
-                  <CartesianGrid
-                    stroke="rgba(255,255,255,0.06)"
-                    strokeDasharray="3 3"
-                  />
-                  <XAxis
-                    type="number"
-                    tick={{ fill: "#94a3b8", fontSize: 10 }}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="group"
-                    width={120}
-                    tick={{ fill: "#cbd5e1", fontSize: 10 }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: "#0d1220",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      borderRadius: 6,
-                      color: "#e7ebf3",
-                    }}
-                  />
-                  <Bar dataKey="hours" fill="#38bdf8" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </section>
-
-          {drilldown && (
-            <section
-              aria-labelledby="workbench-drilldown-title"
-              className="rounded-md border border-cyan-400/25 bg-cyan-400/[0.04] p-4"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-300/70">
-                    {t("workbench.drilldown")}
+              <section className="rounded-md border border-white/10 bg-[var(--surface-1)]/35 p-4">
+                <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+                      {t("workbench.workstationDetail")}
+                    </h4>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {t("workbench.workstationDetailHint")}
+                    </p>
                   </div>
-                  <h4
-                    id="workbench-drilldown-title"
-                    className="mt-1 text-sm font-semibold text-slate-100"
-                  >
-                    {drilldown.title}
-                  </h4>
-                  <p className="mt-1 text-xs text-slate-400">
-                    {drilldown.detail}
-                  </p>
+                  <span className="text-[10px] text-slate-500">
+                    {workstationDashboardRows.length === 0
+                      ? t("workbench.noGroupedRows")
+                      : `${workstationDashboardRows.length} ${t("workbench.workstation")}`}
+                  </span>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={createReviewTaskFromDrilldown}
-                    className="rounded-md border border-amber-300/30 bg-amber-300/[0.08] px-2.5 py-1.5 text-[11px] font-medium text-amber-200 transition-colors hover:border-amber-200/60 hover:bg-amber-300/[0.14]"
-                  >
-                    {t("workbench.createReviewTask")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDrilldown(null)}
-                    className="rounded-md border border-white/10 px-2.5 py-1.5 text-[11px] text-slate-300 transition-colors hover:border-white/25 hover:text-white"
-                  >
-                    {t("workbench.close")}
-                  </button>
-                </div>
-              </div>
-              {actionMessage && (
-                <p className="mt-3 text-[11px] text-emerald-300" role="status">
-                  {actionMessage}
-                </p>
-              )}
-              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {drilldown.datasets.map((dataset) => (
-                  <a
-                    key={dataset.relativePath}
-                    href={datasetEpisodeHref(
-                      dataset,
-                      drilldown.episodeId ?? 0,
-                      drilldown.frame,
-                    )}
-                    className="rounded-md border border-white/10 bg-black/10 px-3 py-2 transition-colors hover:border-cyan-300/50 hover:bg-cyan-400/[0.06]"
-                  >
-                    <span className="block truncate font-mono text-[11px] text-cyan-200">
-                      {dataset.relativePath}
-                    </span>
-                    <span className="mt-1 block text-[10px] text-slate-500">
-                      {t("workbench.openEpisode", {
-                        episode: drilldown.episodeId ?? 0,
-                      })}
-                      {drilldown.frame === undefined
-                        ? ""
-                        : ` · ${t("workbench.frame", {
-                            frame: drilldown.frame,
-                          })}`}
-                    </span>
-                  </a>
-                ))}
-              </div>
-              {drilldown.datasets.length === 0 && (
-                <p className="mt-3 text-xs text-slate-500">
-                  {t("workbench.noDatasetAdditions")}
-                </p>
-              )}
-            </section>
-          )}
-
-          <div className={mappingEditorOpen ? "" : "hidden"}>
-            <WorkbenchConfigurationEditor
-              key={organization}
-              organization={organization}
-              initial={workbenchConfiguration ?? undefined}
-              onSaved={(value) => {
-                setWorkbenchConfiguration(value);
-                const mappings = workbenchMappingsFromConfiguration(
-                  value.config,
-                );
-                setWorkstationMappings(mappings.mappings);
-                setWorkstationLegacyMappings(mappings.legacyMappings);
-                setWorkstationDraft(mappings.mappings);
-                setWorkstationLegacyDraft(mappings.legacyMappings);
-                setPersonnelConfig(
-                  legacyPersonnelConfigFromConfiguration(
-                    organization,
-                    value.config,
-                    value.updatedAt,
-                  ),
-                );
-              }}
-            />
-          </div>
-
-          {rewardEditorOpen && (
-            <section className="rounded-md border border-white/10 bg-[var(--surface-1)]/35 p-4">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
-                    {t("workbench.rewardRules")}
-                  </h4>
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    {t("workbench.rewardRulesHint")}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <label className="flex items-center gap-2 text-xs text-slate-400">
-                    <span>{t("workbench.dailyTargetLabel")}</span>
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <label className="flex min-w-[14rem] flex-1 items-center gap-2 rounded-md border border-white/10 bg-black/10 px-2.5 py-1.5 text-[11px] text-slate-500">
+                    <span className="shrink-0">{t("workbench.filter")}</span>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.25"
-                      value={rewardDraft.dailyTargetHours}
+                      value={workstationQuery}
                       onChange={(event) =>
-                        setRewardDraft((current) => ({
-                          ...current,
-                          dailyTargetHours: parseNonNegativeNumber(
-                            event.target.value,
-                          ),
-                        }))
+                        setWorkstationQuery(event.target.value)
                       }
-                      className="w-24 rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-right tabular-nums text-slate-200 focus:border-cyan-400 focus:outline-none"
+                      placeholder={t("workbench.rowFilterPlaceholder")}
+                      className="min-w-0 flex-1 bg-transparent text-slate-200 outline-none placeholder:text-slate-600"
+                      aria-label={t("workbench.filterWorkstationRows")}
                     />
                   </label>
-                  <label className="flex items-center gap-2 text-xs text-slate-400">
-                    <span>{t("workbench.enabled")}</span>
-                    <input
-                      type="checkbox"
-                      checked={rewardDraft.enabled}
+                  <label className="flex items-center gap-2 text-[11px] text-slate-500">
+                    {t("workbench.sort")}
+                    <select
+                      value={workstationSort}
                       onChange={(event) =>
-                        setRewardDraft((current) => ({
-                          ...current,
-                          enabled: event.target.checked,
-                        }))
+                        setWorkstationSort(
+                          event.target.value as
+                            | "reward"
+                            | "hours"
+                            | "robot"
+                            | "datasets",
+                        )
                       }
-                      className="h-4 w-4 accent-cyan-400"
-                    />
+                      className="rounded-md border border-white/10 bg-[var(--surface-0)] px-2 py-1.5 text-slate-200 outline-none"
+                      aria-label={t("workbench.sortWorkstationRows")}
+                    >
+                      <option value="reward">{t("workbench.reward")}</option>
+                      <option value="hours">{t("common.hours")}</option>
+                      <option value="datasets">
+                        {t("workbench.datasets")}
+                      </option>
+                      <option value="robot">
+                        {t("workbench.workstation")}
+                      </option>
+                    </select>
                   </label>
                   <button
                     type="button"
-                    onClick={restoreRewardDefaults}
-                    disabled={rewardSaving}
-                    className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-cyan-300/50 hover:text-cyan-200 disabled:opacity-50"
+                    onClick={exportWorkbenchCsv}
+                    className="rounded-md border border-cyan-400/25 bg-cyan-400/[0.06] px-2.5 py-1.5 text-[11px] font-medium text-cyan-200 transition-colors hover:border-cyan-300/60 hover:bg-cyan-400/[0.12]"
                   >
-                    {t("workbench.restoreDefaults")}
+                    {t("workbench.exportCsv")}
                   </button>
                   <button
                     type="button"
-                    onClick={addRewardLevel}
-                    disabled={rewardSaving}
-                    className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-cyan-300/50 hover:text-cyan-200 disabled:opacity-50"
+                    onClick={() => void copyWorkbenchShareLink()}
+                    className="rounded-md border border-white/10 bg-white/[0.025] px-2.5 py-1.5 text-[11px] font-medium text-slate-300 transition-colors hover:border-cyan-300/50 hover:text-cyan-100"
                   >
-                    {t("workbench.addLevel")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={saveRewardRules}
-                    disabled={
-                      rewardSaving ||
-                      Boolean(rewardValidationError) ||
-                      !rewardDraftDirty
-                    }
-                    className="rounded-md border border-cyan-400/25 bg-cyan-400/10 px-3 py-1.5 text-xs text-cyan-100 transition-colors hover:border-cyan-300/60 hover:bg-cyan-400/15 disabled:opacity-50"
-                  >
-                    {rewardSaving ? t("workbench.saving") : t("workbench.save")}
+                    {t("workbench.copyShareLink")}
                   </button>
                 </div>
-              </div>
-              {(rewardError || rewardMessage || rewardValidationError) && (
-                <div
-                  className={`mb-3 rounded-md border px-3 py-2 text-xs ${
-                    rewardError || rewardValidationError
-                      ? "border-amber-400/25 bg-amber-400/5 text-amber-200"
-                      : "border-emerald-400/25 bg-emerald-400/5 text-emerald-200"
-                  }`}
-                >
-                  {rewardError || rewardValidationError || rewardMessage}
-                </div>
-              )}
-              <div className="overflow-x-auto rounded-md border border-white/10">
-                <table className="w-full min-w-[860px] border-collapse text-left text-xs">
-                  <thead className="bg-[var(--surface-2)] text-slate-400">
-                    <tr>
-                      <th className="px-3 py-2.5 font-medium">
-                        {t("workbench.label")}
-                      </th>
-                      <th className="px-3 py-2.5 font-medium">
-                        {t("workbench.minPercent")}
-                      </th>
-                      <th className="px-3 py-2.5 font-medium">
-                        {t("workbench.maxPercent")}
-                      </th>
-                      <th className="px-3 py-2.5 font-medium">
-                        {t("workbench.amount")}
-                      </th>
-                      <th className="px-3 py-2.5 font-medium">
-                        {t("workbench.actions")}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rewardDraft.levels.map((level, index) => {
-                      return (
-                        <tr key={level.id} className="border-t border-white/5">
-                          <td className="px-3 py-2.5">
-                            <input
-                              value={level.label}
-                              onChange={(event) =>
-                                updateRewardLevel(index, {
-                                  label: event.target.value,
-                                })
-                              }
-                              className="w-full rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-slate-100 focus:border-cyan-400 focus:outline-none"
-                            />
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={level.minPercent}
-                              onChange={(event) =>
-                                updateRewardLevel(index, {
-                                  minPercent: parseNonNegativeNumber(
-                                    event.target.value,
-                                  ),
-                                })
-                              }
-                              className="w-24 rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-right tabular-nums text-slate-100 focus:border-cyan-400 focus:outline-none"
-                            />
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={level.maxPercent ?? ""}
-                              onChange={(event) =>
-                                updateRewardLevel(index, {
-                                  maxPercent:
-                                    event.target.value === ""
-                                      ? null
-                                      : parseNonNegativeNumber(
-                                          event.target.value,
-                                        ),
-                                })
-                              }
-                              placeholder={t("workbench.openEnded")}
-                              className="w-24 rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-right tabular-nums text-slate-100 focus:border-cyan-400 focus:outline-none"
-                            />
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <input
-                              type="number"
-                              step="1"
-                              value={level.amount}
-                              onChange={(event) =>
-                                updateRewardLevel(index, {
-                                  amount: Number(event.target.value) || 0,
-                                })
-                              }
-                              className="w-24 rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-right tabular-nums text-slate-100 focus:border-cyan-400 focus:outline-none"
-                            />
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <button
-                              type="button"
-                              onClick={() => removeRewardLevel(index)}
-                              disabled={rewardDraft.levels.length <= 1}
-                              className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-amber-300/50 hover:text-amber-200 disabled:opacity-50"
-                            >
-                              {t("workbench.remove")}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <div className="mt-4">
-                <h5 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                  {t("workbench.episodeDurationMultiplier")}
-                </h5>
-                <div className="overflow-x-auto rounded-md border border-white/10">
-                  <table className="w-full min-w-[650px] border-collapse text-left text-xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[980px] border-collapse text-left text-xs">
                     <thead className="bg-[var(--surface-2)] text-slate-400">
                       <tr>
                         <th className="px-3 py-2.5 font-medium">
-                          {t("workbench.label")}
+                          {t("workbench.workstation")}
                         </th>
                         <th className="px-3 py-2.5 font-medium">
-                          {t("workbench.minSeconds")}
+                          {t("workbench.personnel")}
                         </th>
                         <th className="px-3 py-2.5 font-medium">
-                          {t("workbench.maxSeconds")}
+                          {t("workbench.sourceRepos")}
                         </th>
                         <th className="px-3 py-2.5 font-medium">
-                          {t("workbench.multiplier")}
+                          {t("workbench.datasets")}
+                        </th>
+                        <th
+                          className="px-3 py-2.5 font-medium"
+                          title={t("workbench.workstationHours")}
+                        >
+                          {t("workbench.workstationHours")}
+                        </th>
+                        <th
+                          className="px-3 py-2.5 font-medium"
+                          title={t("workbench.perPersonTargetHours")}
+                        >
+                          {t("workbench.perPersonTargetHours")}
+                        </th>
+                        <th className="px-3 py-2.5 font-medium">
+                          {t("workbench.rate")}
+                        </th>
+                        <th className="px-3 py-2.5 font-medium">
+                          {t("workbench.rule")}
+                        </th>
+                        <th className="px-3 py-2.5 font-medium">
+                          {t("workbench.avgPerEpisode")}
+                        </th>
+                        <th className="px-3 py-2.5 font-medium">
+                          {t("workbench.reward")}
                         </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {rewardDraft.episodeDurationLevels.map((level, index) => (
-                        <tr key={level.id} className="border-t border-white/5">
-                          <td className="px-3 py-2.5">
-                            <input
-                              value={level.label}
-                              onChange={(event) =>
-                                updateEpisodeDurationLevel(index, {
-                                  label: event.target.value,
-                                })
-                              }
-                              className="w-full rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-slate-100 focus:border-cyan-400 focus:outline-none"
+                      {visibleRobotDashboardRows.map((row) => (
+                        <tr
+                          key={`${row.workstation}-${row.group}`}
+                          className="cursor-pointer border-t border-white/5 transition-colors hover:bg-cyan-400/[0.04] focus:bg-cyan-400/[0.06] focus:outline-none"
+                          tabIndex={0}
+                          role="button"
+                          onClick={(event) => {
+                            if (
+                              event.target instanceof Element &&
+                              event.target.closest("button,a,input,select")
+                            ) {
+                              return;
+                            }
+                            openWorkbenchDrilldown({
+                              title: `${row.workstation} ${t("workbench.workstationDetail")}`,
+                              detail: `${row.workstation} · ${formatHours(row.hours)} ${t("common.hours")} · ${formatCount(row.count)} ${t("workbench.datasets")}`,
+                              datasets: datasetsForWorkstation(row.workstation),
+                              episodeId: 0,
+                            });
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              openWorkbenchDrilldown({
+                                title: `${row.workstation} ${t("workbench.workstationDetail")}`,
+                                detail: `${row.workstation} · ${formatHours(row.hours)} ${t("common.hours")} · ${formatCount(row.count)} ${t("workbench.datasets")}`,
+                                datasets: datasetsForWorkstation(
+                                  row.workstation,
+                                ),
+                                episodeId: 0,
+                              });
+                            }
+                          }}
+                        >
+                          <td
+                            className="cursor-help px-3 py-2.5 text-slate-100"
+                            title={`${t("workbench.workstation")}: ${row.workstation}`}
+                          >
+                            {row.workstation}
+                          </td>
+                          <td
+                            className="px-3 py-2.5 text-slate-300"
+                            title={
+                              personnelByWorkstation
+                                .get(row.workstation)
+                                ?.join(", ") ||
+                              t("workbench.noPersonnelMappingShort")
+                            }
+                          >
+                            {personnelByWorkstation
+                              .get(row.workstation)
+                              ?.join(", ") || "—"}
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-300">
+                            <SourceReposCell repos={row.sourceRepos} />
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-300 tabular-nums">
+                            {formatCount(row.count)}
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-300 tabular-nums">
+                            {formatHours(row.hours)}
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-300 tabular-nums">
+                            {targetLabel}
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-300 tabular-nums">
+                            {formatRate(
+                              getWorkbenchOkrAchievementRate(
+                                row.hours,
+                                targetHours ?? 0,
+                              ),
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-300 tabular-nums">
+                            <WorkbenchRuleBadge
+                              label={row.reward.level?.label}
+                              symbol={row.reward.symbol}
                             />
                           </td>
-                          <td className="px-3 py-2.5">
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={level.minSeconds}
-                              onChange={(event) =>
-                                updateEpisodeDurationLevel(index, {
-                                  minSeconds: parseNonNegativeNumber(
-                                    event.target.value,
-                                  ),
-                                })
-                              }
-                              className="w-28 rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-right tabular-nums text-slate-100 focus:border-cyan-400 focus:outline-none"
-                            />
+                          <td className="px-3 py-2.5 text-slate-300 tabular-nums">
+                            {formatWorkbenchAverageEpisode(row.reward)}
                           </td>
-                          <td className="px-3 py-2.5">
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={level.maxSeconds ?? ""}
-                              placeholder={t("workbench.openEnded")}
-                              onChange={(event) =>
-                                updateEpisodeDurationLevel(index, {
-                                  maxSeconds:
-                                    event.target.value === ""
-                                      ? null
-                                      : parseNonNegativeNumber(
-                                          event.target.value,
-                                        ),
-                                })
-                              }
-                              className="w-28 rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-right tabular-nums text-slate-100 focus:border-cyan-400 focus:outline-none"
-                            />
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <input
-                              type="number"
-                              min="0.01"
-                              step="0.05"
-                              value={level.multiplier}
-                              onChange={(event) =>
-                                updateEpisodeDurationLevel(index, {
-                                  multiplier: Number(event.target.value),
-                                })
-                              }
-                              className="w-28 rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-right tabular-nums text-slate-100 focus:border-cyan-400 focus:outline-none"
-                            />
+                          <td className="px-3 py-2.5 text-slate-300 tabular-nums">
+                            {formatWorkbenchRewardAmount(row.reward.amount)}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-              </div>
-            </section>
-          )}
+                {visibleRobotDashboardRows.length === 0 && (
+                  <p className="mt-3 text-xs text-slate-500">
+                    {t("workbench.noWorkstationFilterMatch")}
+                  </p>
+                )}
+              </section>
 
-          <WorkbenchMailComposer
-            organization={organization}
-            dashboardInput={mailDashboardInput}
-            recipientSuggestions={recipientSuggestions}
-            recipientGroups={recipientGroups}
-          />
+              <WorkbenchPersonnelWorkload rollup={personnelRollup} />
+
+              <section className="rounded-md border border-white/10 bg-[var(--surface-1)]/35 p-4">
+                <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+                    {t("workbench.workstationDayHeatmap")}
+                  </h4>
+                  <span className="text-[10px] text-slate-500">
+                    {heatmapDays.length === 0
+                      ? t("workbench.noDataSince", { date: "2026-08-22" })
+                      : "2026-08-22 → " +
+                        heatmapEndDateLabel +
+                        " · " +
+                        heatmapDays.length +
+                        ` ${t("workbench.latestDataDays")}`}
+                  </span>
+                </div>
+                {heatmapDays.length === 0 ? (
+                  <div className="rounded-md border border-white/10 bg-white/[0.02] p-4 text-xs text-slate-500">
+                    {t("workbench.noWorkstationDayDataFrom", {
+                      date: "2026-08-22",
+                      end: heatmapEndDateLabel,
+                    })}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <div
+                      className="min-w-[760px]"
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns:
+                          "minmax(13rem, 1.4fr) repeat(" +
+                          heatmapDays.length +
+                          ", minmax(3.5rem, 1fr))",
+                      }}
+                    >
+                      <div className="border-b border-white/10 px-3 py-2 text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                        {t("workbench.workstation")}
+                      </div>
+                      {heatmapDays.map((day) => (
+                        <div
+                          key={day}
+                          className="border-b border-white/10 px-2 py-2 text-center text-[10px] uppercase tracking-[0.12em] text-slate-500 tabular-nums"
+                        >
+                          {day.slice(5)}
+                        </div>
+                      ))}
+                      {heatmapRows.map((row) => (
+                        <Fragment key={row.workstation}>
+                          <div className="border-b border-white/5 px-3 py-2 text-xs text-slate-200">
+                            <div className="truncate font-medium">
+                              {row.workstation}
+                            </div>
+                          </div>
+                          {heatmapDays.map((day) => {
+                            const hours = row.hoursByDay[day] ?? 0;
+                            const alpha =
+                              hours <= 0
+                                ? 0.03
+                                : Math.min(
+                                    0.85,
+                                    0.08 + (hours / heatmapMaxHours) * 0.75,
+                                  );
+                            return (
+                              <button
+                                type="button"
+                                key={row.workstation + "-" + day}
+                                className="border-b border-white/5 px-2 py-2 text-center text-xs tabular-nums text-slate-100 transition-colors hover:bg-cyan-200/20 focus:bg-cyan-200/25 focus:outline-none"
+                                style={{
+                                  backgroundColor:
+                                    "rgba(56, 189, 248, " + alpha + ")",
+                                }}
+                                onClick={() =>
+                                  openWorkbenchDrilldown({
+                                    title: row.workstation + " · " + day,
+                                    detail:
+                                      row.workstation +
+                                      " · " +
+                                      formatHours(hours) +
+                                      " " +
+                                      t("common.hours"),
+                                    day,
+                                    datasets:
+                                      sourceFilteredLocalDatasets.filter(
+                                        (dataset) => {
+                                          return (
+                                            workstationForDatasetDay(
+                                              dataset,
+                                              day,
+                                            ) === row.workstation &&
+                                            workbenchDatasetRangeContributions(
+                                              dataset,
+                                              workstationHeatmapRange,
+                                            ).some(
+                                              (addition) =>
+                                                addition.day === day,
+                                            )
+                                          );
+                                        },
+                                      ),
+                                    episodeId: 0,
+                                  })
+                                }
+                                title={
+                                  row.workstation +
+                                  " " +
+                                  day +
+                                  ": " +
+                                  formatHours(hours) +
+                                  "h"
+                                }
+                              >
+                                {hours > 0 ? formatHours(hours) : "—"}
+                              </button>
+                            );
+                          })}
+                        </Fragment>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              <section className="rounded-md border border-white/10 bg-[var(--surface-1)]/35 p-4">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+                      {t("workbench.topGroups")}
+                    </h4>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {t("workbench.workstation")} ·{" "}
+                      {selectedDates.startDate || t("workbench.beginning")} →{" "}
+                      {selectedDates.endDate || t("workbench.latest")}
+                    </p>
+                  </div>
+                </div>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={selectedChartRows} layout="vertical">
+                      <CartesianGrid
+                        stroke="rgba(255,255,255,0.06)"
+                        strokeDasharray="3 3"
+                      />
+                      <XAxis
+                        type="number"
+                        tick={{ fill: "#94a3b8", fontSize: 10 }}
+                      />
+                      <YAxis
+                        type="category"
+                        dataKey="group"
+                        width={120}
+                        tick={{ fill: "#cbd5e1", fontSize: 10 }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          background: "#0d1220",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                          borderRadius: 6,
+                          color: "#e7ebf3",
+                        }}
+                      />
+                      <Bar
+                        dataKey="hours"
+                        fill="#38bdf8"
+                        radius={[0, 4, 4, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </section>
+
+              {drilldown && (
+                <section
+                  aria-labelledby="workbench-drilldown-title"
+                  className="rounded-md border border-cyan-400/25 bg-cyan-400/[0.04] p-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-300/70">
+                        {t("workbench.drilldown")}
+                      </div>
+                      <h4
+                        id="workbench-drilldown-title"
+                        className="mt-1 text-sm font-semibold text-slate-100"
+                      >
+                        {drilldown.title}
+                      </h4>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {drilldown.detail}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={createReviewTaskFromDrilldown}
+                        className="rounded-md border border-amber-300/30 bg-amber-300/[0.08] px-2.5 py-1.5 text-[11px] font-medium text-amber-200 transition-colors hover:border-amber-200/60 hover:bg-amber-300/[0.14]"
+                      >
+                        {t("workbench.createReviewTask")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDrilldown(null)}
+                        className="rounded-md border border-white/10 px-2.5 py-1.5 text-[11px] text-slate-300 transition-colors hover:border-white/25 hover:text-white"
+                      >
+                        {t("workbench.close")}
+                      </button>
+                    </div>
+                  </div>
+                  {actionMessage && (
+                    <p
+                      className="mt-3 text-[11px] text-emerald-300"
+                      role="status"
+                    >
+                      {actionMessage}
+                    </p>
+                  )}
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {drilldown.datasets.map((dataset) => (
+                      <a
+                        key={dataset.relativePath}
+                        href={datasetEpisodeHref(
+                          dataset,
+                          drilldown.episodeId ?? 0,
+                          drilldown.frame,
+                        )}
+                        className="rounded-md border border-white/10 bg-black/10 px-3 py-2 transition-colors hover:border-cyan-300/50 hover:bg-cyan-400/[0.06]"
+                      >
+                        <span className="block truncate font-mono text-[11px] text-cyan-200">
+                          {dataset.relativePath}
+                        </span>
+                        <span className="mt-1 block text-[10px] text-slate-500">
+                          {t("workbench.openEpisode", {
+                            episode: drilldown.episodeId ?? 0,
+                          })}
+                          {drilldown.frame === undefined
+                            ? ""
+                            : ` · ${t("workbench.frame", {
+                                frame: drilldown.frame,
+                              })}`}
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                  {drilldown.datasets.length === 0 && (
+                    <p className="mt-3 text-xs text-slate-500">
+                      {t("workbench.noDatasetAdditions")}
+                    </p>
+                  )}
+                </section>
+              )}
+
+              <div className={mappingEditorOpen ? "" : "hidden"}>
+                <WorkbenchConfigurationEditor
+                  key={organization}
+                  organization={organization}
+                  initial={workbenchConfiguration ?? undefined}
+                  onSaved={(value) => {
+                    setWorkbenchConfiguration(value);
+                    const mappings = workbenchMappingsFromConfiguration(
+                      value.config,
+                    );
+                    setWorkstationMappings(mappings.mappings);
+                    setWorkstationLegacyMappings(mappings.legacyMappings);
+                    setWorkstationDraft(mappings.mappings);
+                    setWorkstationLegacyDraft(mappings.legacyMappings);
+                    setPersonnelConfig(
+                      legacyPersonnelConfigFromConfiguration(
+                        organization,
+                        value.config,
+                        value.updatedAt,
+                      ),
+                    );
+                  }}
+                />
+              </div>
+
+              {rewardEditorOpen && (
+                <section className="rounded-md border border-white/10 bg-[var(--surface-1)]/35 p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+                        {t("workbench.rewardRules")}
+                      </h4>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        {t("workbench.rewardRulesHint")}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="flex items-center gap-2 text-xs text-slate-400">
+                        <span>{t("workbench.dailyTargetLabel")}</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.25"
+                          value={rewardDraft.dailyTargetHours}
+                          onChange={(event) =>
+                            setRewardDraft((current) => ({
+                              ...current,
+                              dailyTargetHours: parseNonNegativeNumber(
+                                event.target.value,
+                              ),
+                            }))
+                          }
+                          className="w-24 rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-right tabular-nums text-slate-200 focus:border-cyan-400 focus:outline-none"
+                        />
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-slate-400">
+                        <span>{t("workbench.enabled")}</span>
+                        <input
+                          type="checkbox"
+                          checked={rewardDraft.enabled}
+                          onChange={(event) =>
+                            setRewardDraft((current) => ({
+                              ...current,
+                              enabled: event.target.checked,
+                            }))
+                          }
+                          className="h-4 w-4 accent-cyan-400"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={restoreRewardDefaults}
+                        disabled={rewardSaving}
+                        className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-cyan-300/50 hover:text-cyan-200 disabled:opacity-50"
+                      >
+                        {t("workbench.restoreDefaults")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={addRewardLevel}
+                        disabled={rewardSaving}
+                        className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-cyan-300/50 hover:text-cyan-200 disabled:opacity-50"
+                      >
+                        {t("workbench.addLevel")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={saveRewardRules}
+                        disabled={
+                          rewardSaving ||
+                          Boolean(rewardValidationError) ||
+                          !rewardDraftDirty
+                        }
+                        className="rounded-md border border-cyan-400/25 bg-cyan-400/10 px-3 py-1.5 text-xs text-cyan-100 transition-colors hover:border-cyan-300/60 hover:bg-cyan-400/15 disabled:opacity-50"
+                      >
+                        {rewardSaving
+                          ? t("workbench.saving")
+                          : t("workbench.save")}
+                      </button>
+                    </div>
+                  </div>
+                  {(rewardError || rewardMessage || rewardValidationError) && (
+                    <div
+                      className={`mb-3 rounded-md border px-3 py-2 text-xs ${
+                        rewardError || rewardValidationError
+                          ? "border-amber-400/25 bg-amber-400/5 text-amber-200"
+                          : "border-emerald-400/25 bg-emerald-400/5 text-emerald-200"
+                      }`}
+                    >
+                      {rewardError || rewardValidationError || rewardMessage}
+                    </div>
+                  )}
+                  <div className="overflow-x-auto rounded-md border border-white/10">
+                    <table className="w-full min-w-[860px] border-collapse text-left text-xs">
+                      <thead className="bg-[var(--surface-2)] text-slate-400">
+                        <tr>
+                          <th className="px-3 py-2.5 font-medium">
+                            {t("workbench.label")}
+                          </th>
+                          <th className="px-3 py-2.5 font-medium">
+                            {t("workbench.minPercent")}
+                          </th>
+                          <th className="px-3 py-2.5 font-medium">
+                            {t("workbench.maxPercent")}
+                          </th>
+                          <th className="px-3 py-2.5 font-medium">
+                            {t("workbench.amount")}
+                          </th>
+                          <th className="px-3 py-2.5 font-medium">
+                            {t("workbench.actions")}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rewardDraft.levels.map((level, index) => {
+                          return (
+                            <tr
+                              key={level.id}
+                              className="border-t border-white/5"
+                            >
+                              <td className="px-3 py-2.5">
+                                <input
+                                  value={level.label}
+                                  onChange={(event) =>
+                                    updateRewardLevel(index, {
+                                      label: event.target.value,
+                                    })
+                                  }
+                                  className="w-full rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-slate-100 focus:border-cyan-400 focus:outline-none"
+                                />
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={level.minPercent}
+                                  onChange={(event) =>
+                                    updateRewardLevel(index, {
+                                      minPercent: parseNonNegativeNumber(
+                                        event.target.value,
+                                      ),
+                                    })
+                                  }
+                                  className="w-24 rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-right tabular-nums text-slate-100 focus:border-cyan-400 focus:outline-none"
+                                />
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={level.maxPercent ?? ""}
+                                  onChange={(event) =>
+                                    updateRewardLevel(index, {
+                                      maxPercent:
+                                        event.target.value === ""
+                                          ? null
+                                          : parseNonNegativeNumber(
+                                              event.target.value,
+                                            ),
+                                    })
+                                  }
+                                  placeholder={t("workbench.openEnded")}
+                                  className="w-24 rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-right tabular-nums text-slate-100 focus:border-cyan-400 focus:outline-none"
+                                />
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <input
+                                  type="number"
+                                  step="1"
+                                  value={level.amount}
+                                  onChange={(event) =>
+                                    updateRewardLevel(index, {
+                                      amount: Number(event.target.value) || 0,
+                                    })
+                                  }
+                                  className="w-24 rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-right tabular-nums text-slate-100 focus:border-cyan-400 focus:outline-none"
+                                />
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <button
+                                  type="button"
+                                  onClick={() => removeRewardLevel(index)}
+                                  disabled={rewardDraft.levels.length <= 1}
+                                  className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-amber-300/50 hover:text-amber-200 disabled:opacity-50"
+                                >
+                                  {t("workbench.remove")}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="mt-4">
+                    <h5 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                      {t("workbench.episodeDurationMultiplier")}
+                    </h5>
+                    <div className="overflow-x-auto rounded-md border border-white/10">
+                      <table className="w-full min-w-[650px] border-collapse text-left text-xs">
+                        <thead className="bg-[var(--surface-2)] text-slate-400">
+                          <tr>
+                            <th className="px-3 py-2.5 font-medium">
+                              {t("workbench.label")}
+                            </th>
+                            <th className="px-3 py-2.5 font-medium">
+                              {t("workbench.minSeconds")}
+                            </th>
+                            <th className="px-3 py-2.5 font-medium">
+                              {t("workbench.maxSeconds")}
+                            </th>
+                            <th className="px-3 py-2.5 font-medium">
+                              {t("workbench.multiplier")}
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rewardDraft.episodeDurationLevels.map(
+                            (level, index) => (
+                              <tr
+                                key={level.id}
+                                className="border-t border-white/5"
+                              >
+                                <td className="px-3 py-2.5">
+                                  <input
+                                    value={level.label}
+                                    onChange={(event) =>
+                                      updateEpisodeDurationLevel(index, {
+                                        label: event.target.value,
+                                      })
+                                    }
+                                    className="w-full rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-slate-100 focus:border-cyan-400 focus:outline-none"
+                                  />
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    value={level.minSeconds}
+                                    onChange={(event) =>
+                                      updateEpisodeDurationLevel(index, {
+                                        minSeconds: parseNonNegativeNumber(
+                                          event.target.value,
+                                        ),
+                                      })
+                                    }
+                                    className="w-28 rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-right tabular-nums text-slate-100 focus:border-cyan-400 focus:outline-none"
+                                  />
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    value={level.maxSeconds ?? ""}
+                                    placeholder={t("workbench.openEnded")}
+                                    onChange={(event) =>
+                                      updateEpisodeDurationLevel(index, {
+                                        maxSeconds:
+                                          event.target.value === ""
+                                            ? null
+                                            : parseNonNegativeNumber(
+                                                event.target.value,
+                                              ),
+                                      })
+                                    }
+                                    className="w-28 rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-right tabular-nums text-slate-100 focus:border-cyan-400 focus:outline-none"
+                                  />
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <input
+                                    type="number"
+                                    min="0.01"
+                                    step="0.05"
+                                    value={level.multiplier}
+                                    onChange={(event) =>
+                                      updateEpisodeDurationLevel(index, {
+                                        multiplier: Number(event.target.value),
+                                      })
+                                    }
+                                    className="w-28 rounded-md border border-white/10 bg-[var(--surface-0)] px-3 py-2 text-right tabular-nums text-slate-100 focus:border-cyan-400 focus:outline-none"
+                                  />
+                                </td>
+                              </tr>
+                            ),
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              <WorkbenchMailComposer
+                organization={organization}
+                dashboardInput={mailDashboardInput}
+                recipientSuggestions={recipientSuggestions}
+                recipientGroups={recipientGroups}
+              />
+            </>
+          )}
         </>
       )}
       {displaySnapshot && (

@@ -1,3 +1,9 @@
+import {
+  calendarDayKey,
+  calendarDays,
+  shiftCalendarDay,
+  parseCalendarTimestamp,
+} from "@/utils/calendarTime";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
@@ -164,38 +170,13 @@ export function parseRequestLogs(input: string): CsvRow[] {
   return parseCsv(input);
 }
 
-function utcDate(value: string): string | null {
-  const normalized = value
-    .trim()
-    .replace(/\s*T\s*/iu, "T")
-    .replace(/\s*Z$/iu, "Z");
-  const parsed = new Date(normalized);
-  return Number.isNaN(parsed.valueOf())
-    ? null
-    : parsed.toISOString().slice(0, 10);
-}
-
-function chinaDate(timestamp: number): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date(timestamp));
-  const part = (type: "year" | "month" | "day") =>
-    parts.find((item) => item.type === type)?.value ?? "";
-  return `${part("year")}-${part("month")}-${part("day")}`;
+function calendarDate(value: string): string | null {
+  const time = parseCalendarTimestamp(value);
+  return time === null ? null : calendarDayKey(time);
 }
 
 function dateRange(start: string, end: string): string[] {
-  const result: string[] = [];
-  const cursor = new Date(`${start}T00:00:00Z`);
-  const final = new Date(`${end}T00:00:00Z`);
-  while (cursor <= final) {
-    result.push(cursor.toISOString().slice(0, 10));
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-  return result;
+  return calendarDays(start, shiftCalendarDay(end, 1));
 }
 
 export function parsePublisherAnalytics(
@@ -209,7 +190,7 @@ export function parsePublisherAnalytics(
   for (const row of parseCsv(input)) {
     if (row.repoType !== "dataset" || !repositoryIds.has(row.repoName))
       continue;
-    const date = utcDate(row.timestamp);
+    const date = calendarDate(row.timestamp);
     const downloads = Number(row.downloads);
     if (!date || !Number.isFinite(downloads) || downloads < 0) continue;
 
@@ -337,12 +318,12 @@ export function aggregateAdvancedLogs(
       continue;
     if (row.method !== "GET" && row.method !== "HEAD") continue;
     if (row.status !== "200" && row.status !== "206") continue;
-    const timestamp = new Date(row.timestamp).valueOf();
+    const timestamp = parseCalendarTimestamp(row.timestamp);
     const identity = identityFor(row);
-    if (!identity || !Number.isFinite(timestamp)) continue;
+    if (!identity || timestamp === null) continue;
     events.push({
       timestamp,
-      date: chinaDate(timestamp),
+      date: calendarDayKey(timestamp),
       identity: identity.key,
       authenticated: identity.authenticated,
       repoName: row.repoName,

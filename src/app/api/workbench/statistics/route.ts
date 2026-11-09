@@ -1,3 +1,4 @@
+import { isCalendarDay } from "@/utils/calendarTime";
 import path from "node:path";
 import { readCorpusHistory } from "@/lib/corpus-history-store";
 import { readDatasetTasks } from "@/lib/dataset-quality-loader";
@@ -617,22 +618,19 @@ function remoteDatasetFacets(relativePath: string): DatasetFacets {
       .split(/[\\/]+/u)
       .filter(Boolean)
       .at(-1) ?? "";
-  const explicit = /-(\d{2})(\d{2})(\d{2})$/u.exec(leaf);
-  const monthDay = /-(\d{2})(\d{2})$/u.exec(leaf);
+  const explicit = /-(\d{2})(\d{2})(\d{2})[A-Za-z]*$/u.exec(leaf);
+  const monthDay = /-(\d{2})(\d{2})[A-Za-z]*$/u.exec(leaf);
   const match = explicit ?? monthDay;
   if (!match) return { ...EMPTY_FACETS };
   const year = explicit ? 2000 + Number(match[1]) : 2026;
   const month = Number(explicit ? match[2] : match[1]);
   const day = Number(explicit ? match[3] : match[2]);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  if (
-    date.getUTCFullYear() !== year ||
-    date.getUTCMonth() !== month - 1 ||
-    date.getUTCDate() !== day
-  ) {
-    return { ...EMPTY_FACETS };
-  }
-  const captureDay = date.toISOString().slice(0, 10);
+  const captureDay = [
+    year,
+    String(month).padStart(2, "0"),
+    String(day).padStart(2, "0"),
+  ].join("-");
+  if (!isCalendarDay(captureDay)) return { ...EMPTY_FACETS };
   return {
     ...EMPTY_FACETS,
     capturedFrom: captureDay,

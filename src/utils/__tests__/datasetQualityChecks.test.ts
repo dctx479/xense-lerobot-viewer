@@ -10,6 +10,17 @@ import {
 } from "@/utils/datasetQualityChecks";
 
 describe("name_format", () => {
+  test.each(["261020", "261020b", "1020B"])(
+    "accepts the %s date suffix",
+    (suffix) => {
+      expect(
+        checkDatasetNameFormat({
+          dataset_name: `TacVerse/taccap-g1-place-cup-${suffix}`,
+        }).status,
+      ).toBe("ok");
+    },
+  );
+
   test("accepts the TacVerse task/date format", () => {
     const result = checkDatasetNameFormat({
       dataset_name: "TacVerse/taccap-g1-place-egg-into-egg-tray-0816",

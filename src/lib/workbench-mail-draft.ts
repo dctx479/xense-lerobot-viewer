@@ -1,3 +1,11 @@
+import {
+  CALENDAR_DAY_MS,
+  calendarDayStart,
+  calendarDayKey,
+  calendarTimestamp,
+  isCalendarDay,
+  parseCalendarTimestamp,
+} from "@/utils/calendarTime";
 import { formatBytes } from "@/utils/byteSize";
 import { validateWorkbenchMailSender } from "@/lib/workbench-mail-sender";
 
@@ -128,42 +136,31 @@ function validateWorkbenchMailRecipients(value: string): string | null {
 }
 
 function isDayKey(value: unknown): value is string {
-  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(value);
-}
-
-function parseDayUtc(value: string): number | null {
-  const [year, month, day] = value.split("-").map(Number);
-  if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(month) ||
-    !Number.isInteger(day)
-  ) {
-    return null;
-  }
-  const parsed = Date.UTC(year, month - 1, day);
-  return dayKeyFromUtc(parsed) === value ? parsed : null;
-}
-
-function dayKeyFromUtc(value: number): string {
-  return new Date(value).toISOString().slice(0, 10);
+  return isCalendarDay(value);
 }
 
 function normalizedMailDateRange(
   range?: WorkbenchDashboardMailDateRange | null,
-): { startDate: string; inclusiveEndDate: string; days: number } | null {
+): {
+  startDate: string;
+  endDate: string;
+  inclusiveEndDate: string;
+  days: number;
+} | null {
   if (!range || !isDayKey(range.startDate) || !isDayKey(range.endDate)) {
     return null;
   }
-  let start = parseDayUtc(range.startDate);
-  let end = parseDayUtc(range.endDate);
+  let start = calendarDayStart(range.startDate);
+  let end = calendarDayStart(range.endDate);
   if (start === null || end === null) return null;
   if (start > end) [start, end] = [end, start];
   if (start === end) return null;
-  const days = Math.floor((end - start) / 86_400_000);
+  const days = Math.floor((end - start) / CALENDAR_DAY_MS);
   if (days <= 0) return null;
   return {
-    startDate: dayKeyFromUtc(start),
-    inclusiveEndDate: dayKeyFromUtc(end - 86_400_000),
+    startDate: calendarDayKey(start),
+    endDate: calendarDayKey(end),
+    inclusiveEndDate: calendarDayKey(end - CALENDAR_DAY_MS),
     days,
   };
 }
@@ -214,10 +211,10 @@ function formatAverageEpisode(
 }
 
 function formatGeneratedAt(value?: Date | string): string {
-  const date =
-    value instanceof Date ? value : value ? new Date(value) : new Date();
-  if (Number.isNaN(date.getTime())) return cleanInlineText(value) || "-";
-  return date.toISOString();
+  const time = parseCalendarTimestamp(value ?? new Date());
+  return time === null
+    ? cleanInlineText(value) || "-"
+    : calendarTimestamp(time);
 }
 
 function escapeHtml(value: unknown): string {
@@ -232,8 +229,7 @@ function escapeHtml(value: unknown): string {
 function formatDateRangeLabel(range: WorkbenchDashboardMailDateRange): string {
   const normalized = normalizedMailDateRange(range);
   if (!normalized) return "Not available";
-  if (normalized.days === 1) return normalized.startDate;
-  return `${normalized.startDate} to ${normalized.inclusiveEndDate}`;
+  return `${normalized.startDate} 00:00 (inclusive) to ${normalized.endDate} 00:00 (exclusive), UTC+8`;
 }
 
 function normalizedSourceRepos(repoIds: readonly string[]): string[] {

@@ -273,7 +273,9 @@ describe("workbench mail draft", () => {
 
     expect(textBody).toContain("WORKBENCH DASHBOARD");
     expect(textBody).toContain("Organization: TacVerse");
-    expect(textBody).toContain("Date range: 2026-09-01 to 2026-09-02");
+    expect(textBody).toContain(
+      "Date range: 2026-09-01 00:00 (inclusive) to 2026-09-03 00:00 (exclusive), UTC+8",
+    );
     expect(textBody).toContain("TacVerse total hours: 2,168.1 h");
     expect(textBody).toContain("Selected range hours: 12.50");
     expect(textBody).toContain("Tasks: 2");

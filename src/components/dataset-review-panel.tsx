@@ -11,6 +11,7 @@ import type {
 import { EpisodeLengthHistogram } from "@/components/stats-panel";
 import HfDownloadPanel from "@/components/hf-download-panel";
 import WorkbenchDatasetStatistics from "@/components/workbench-dataset-statistics";
+import WorkbenchReviewStatistics from "@/components/workbench-review-statistics";
 import WorkbenchGroupingPanel from "@/components/workbench-grouping-panel";
 import { HF_MIRROR_ENDPOINT, HF_OFFICIAL_ENDPOINT } from "@/lib/hf-endpoints";
 import {
@@ -304,8 +305,16 @@ export default function DatasetReviewPanel({
     parseTacverseHubCategorySelection(searchParams.get("workbenchHubCategory")),
   );
   const [workbenchView, setWorkbenchView] = useState<
-    "dataset-statistics" | "checks" | "grouping" | "hf-download"
-  >("grouping");
+    | "dataset-statistics"
+    | "review-statistics"
+    | "checks"
+    | "grouping"
+    | "hf-download"
+  >(() =>
+    searchParams.get("workbenchView") === "review-statistics"
+      ? "review-statistics"
+      : "grouping",
+  );
   const qualityRequestIdRef = useRef(0);
   const statisticsOrganization =
     workbenchView === "checks" ? organization : "TacVerse";
@@ -415,6 +424,7 @@ export default function DatasetReviewPanel({
           isHuggingFace
             ? {
                 org: statisticsOrganization,
+                force: true,
                 endpoint: statisticsEndpoint,
                 ...(explicitToken ? { token: explicitToken } : {}),
               }
@@ -550,6 +560,7 @@ export default function DatasetReviewPanel({
             {
               signal: controller.signal,
               metadataOnly: true,
+              force: true,
               endpoint: statisticsEndpoint,
               ...(explicitToken ? { token: explicitToken } : {}),
             },
@@ -689,7 +700,13 @@ export default function DatasetReviewPanel({
             {t("workbench.panelDescription")}
           </p>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div
+          className={
+            workbenchView === "review-statistics"
+              ? "hidden"
+              : "flex flex-wrap items-center justify-end gap-2"
+          }
+        >
           {encodedPath && workbenchView === "checks" && (
             <button
               type="button"
@@ -778,13 +795,14 @@ export default function DatasetReviewPanel({
         </div>
       </div>
 
-      {statisticsEndpoint === HF_MIRROR_ENDPOINT && (
-        <p className="-mt-2 text-[11px] text-amber-200/80">
-          {t("workbench.mirrorHint")}
-        </p>
-      )}
+      {workbenchView !== "review-statistics" &&
+        statisticsEndpoint === HF_MIRROR_ENDPOINT && (
+          <p className="-mt-2 text-[11px] text-amber-200/80">
+            {t("workbench.mirrorHint")}
+          </p>
+        )}
 
-      {showStatisticsToken && (
+      {workbenchView !== "review-statistics" && showStatisticsToken && (
         <div className="-mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-[var(--surface-1)]/40 p-3">
           <input
             type="password"
@@ -868,6 +886,7 @@ export default function DatasetReviewPanel({
       )}
 
       {workbenchView !== "hf-download" &&
+        workbenchView !== "review-statistics" &&
         (statisticsRefreshError || statisticsRefreshMessage) && (
           <div
             className={`rounded-lg border p-3 text-xs ${
@@ -885,6 +904,7 @@ export default function DatasetReviewPanel({
           [
             ["grouping", t("workbench.groupedStatistics")],
             ["dataset-statistics", t("workbench.datasetStatistics")],
+            ["review-statistics", t("workbench.reviewStatistics")],
             ["checks", t("workbench.currentDatasetChecks")],
             ["hf-download", t("workbench.hfDownloadTools")],
           ] as const
@@ -892,7 +912,14 @@ export default function DatasetReviewPanel({
           <button
             key={value}
             type="button"
-            onClick={() => setWorkbenchView(value)}
+            onClick={() => {
+              setWorkbenchView(value);
+              const url = new URL(window.location.href);
+              if (value === "review-statistics")
+                url.searchParams.set("workbenchView", value);
+              else url.searchParams.delete("workbenchView");
+              window.history.replaceState(window.history.state, "", url);
+            }}
             className={`rounded-md px-3 py-1.5 text-xs transition-colors ${
               workbenchView === value
                 ? "bg-cyan-400/15 text-cyan-200"
@@ -987,6 +1014,8 @@ export default function DatasetReviewPanel({
           token={statisticsToken}
           initialSource={datasetInfo.repoId || datasetName}
         />
+      ) : workbenchView === "review-statistics" ? (
+        <WorkbenchReviewStatistics refreshToken={statisticsRefreshToken} />
       ) : workbenchView === "dataset-statistics" ? (
         <WorkbenchDatasetStatistics
           categoryFilter={hubCategoryFilter}

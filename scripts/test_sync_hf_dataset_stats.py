@@ -27,6 +27,30 @@ def fake_hub_module(contents: dict[str, bytes]) -> types.SimpleNamespace:
 
 
 class MetadataSyncTest(unittest.TestCase):
+    def test_missing_revision_fetches_remote_metadata_instead_of_cached_main(self) -> None:
+        calls = []
+
+        def download(*, filename, local_dir, **kwargs):
+            calls.append(kwargs)
+            destination = Path(local_dir) / filename
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(
+                '{"total_episodes": 1}' if kwargs.get("local_files_only")
+                else '{"total_episodes": 8}', encoding="utf-8",
+            )
+            return str(destination)
+
+        with tempfile.TemporaryDirectory() as root, patch.dict(
+            sys.modules, {"huggingface_hub": types.SimpleNamespace(hf_hub_download=download)}
+        ), patch.object(stats, "list_metadata_files", return_value=["meta/info.json"]):
+            target = Path(root) / "TacVerse" / "example"
+            stats.download_metadata("TacVerse/example", str(target), root, "TacVerse", None)
+            info = json.loads((target / "meta/info.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(info["total_episodes"], 8)
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("local_files_only", calls[0])
+
     def test_downloads_complete_meta_tree_and_never_data_or_videos(self) -> None:
         FakeApi.files = [
             "README.md",

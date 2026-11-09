@@ -17,7 +17,10 @@ export async function GET(
   ctx: { params: Promise<{ encodedPath: string }> },
 ) {
   const { encodedPath } = await ctx.params;
-  if (req.url && new URL(req.url).searchParams.get("kind") !== "episode-metadata") {
+  if (
+    req.url &&
+    new URL(req.url).searchParams.get("kind") !== "episode-metadata"
+  ) {
     return Response.json({ error: "Unsupported shard kind." }, { status: 400 });
   }
 

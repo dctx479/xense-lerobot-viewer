@@ -109,8 +109,8 @@ export const zh: Record<MessageKey, string> = {
   "grid.dateAll": "全部",
   "grid.dateRange": "区间",
   "grid.dateUnknown": "日期未知（{count}）",
-  "grid.dateFrom": "起始日期",
-  "grid.dateTo": "结束日期",
+  "grid.dateFrom": "起始日期（当日 00:00，含）",
+  "grid.dateTo": "结束日期（当日 00:00，不含）",
   "grid.dateClear": "清空",
   "grid.datePresetCutoff": "{date} 起",
   "grid.datePresetCutoffHint": "首发口径:{date} 及以后采集的",
@@ -342,7 +342,180 @@ export const zh: Record<MessageKey, string> = {
   "review.crossMarkShort": "标记复检",
   "review.undoShort": "撤销标记",
   "review.title": "人工质检",
+  "workbench.reviewStatistics": "质检情况统计",
+  "review.statisticsHint":
+    "统计所选目录保存的人工质检标记。至少两名不同人员标记表示已交叉复检，不代表质量合格；已撤销标记不保留历史。",
+  "review.statisticsDateHint":
+    "默认查看今天（UTC+8）：今天 00:00（含）至明天 00:00（不含）。所有起止日期均按所选当日 00:00 计算，结束日期不自动顺延。跨零点标记归入新一天；同一 Episode 同一人员仅保留现存标记，不代表完整的重复检查历史。",
+  "review.statisticsDateWindow":
+    "筛选时间：{start} 00:00（含）至 {end} 00:00（不含），UTC+8",
+  "review.statisticsDateWindowFrom":
+    "筛选时间：{start} 00:00 起（含），结束日期不限，UTC+8",
+  "review.statisticsDateWindowUntil":
+    "筛选时间：{end} 00:00 前（不含），开始日期不限，UTC+8",
+  "review.statisticsDateWindowOpen": "筛选时间：全部日期（UTC+8）",
+  "review.statisticsCutoffTime": "{date} 00:00 前（UTC+8，不含）",
+  "review.statisticsDatasets": "涉及质检的数据集数",
+  "review.statisticsEpisodes": "已质检 Episode",
+  "review.statisticsPending": "待交叉复检 Episode",
+  "review.statisticsCrossReviewed": "已交叉复检 Episode",
+  "review.statisticsRecords": "质检标记人次",
+  "review.statisticsPeople": "参与质检人数",
+  "review.statisticsTrend": "每日质检标记趋势（UTC+8）",
+  "review.statisticsDay": "质检日期",
+  "review.statisticsInitialMarks": "初检标记人次",
+  "review.statisticsCrossMarks": "复检标记人次",
+  "review.statisticsPeopleTitle": "质检人员工作量",
+  "review.statisticsDatasetsTitle": "数据集质检明细",
+  "review.statisticsLastReview": "最近质检时间（UTC+8）",
+  "review.statisticsSearch": "按数据集名称筛选",
+  "review.statisticsEmpty":
+    "当前筛选范围内暂无已保存的人工质检标记。可在 Episodes 或 3D Replay 中检查后手动标记，也可切换目录或日期范围。",
+  "review.statisticsInvalidRange": "开始日期不能晚于结束日期。",
+  "review.statisticsAllDates": "全部日期",
+  "review.statisticsToday": "今天",
+  "review.statisticsLast7Days": "近 7 天",
+  "review.statisticsMarksUnit": "人次",
+  "review.statisticsSeconds": "秒",
+  "review.statisticsMinutes": "分钟",
+  "review.statisticsEstimatedPayload": "≈ 体量按共享文件分摊估算",
+  "review.statisticsChartUnknown":
+    "{count} 个人日的指标不完整，未绘制数值；请查看明细中的已知量。",
+  "review.statisticsKnownWeight": "已知量",
+  "review.statisticsCoverageInferred":
+    "覆盖比例由完整清单、全量值和未检查明细推导；已知量仅显示实测部分。",
+  "review.statisticsCoverageEstimate":
+    "含估算值，仅作参考，不作为全量或验收依据。",
+  "review.statisticsCoverageBounds":
+    "深色为可确认下界，浅色为可能上界；缺失量未按零处理。",
+  "review.statisticsCoverageManifest": "按完整 Episode 明细汇总计算。",
+  "review.statisticsCoverageDeclared": "分母使用数据集元数据的全量值。",
+  "review.statisticsCoverageIssues": "{count} 项核验提示",
+  "review.statisticsCoverageOverview": "检查覆盖总览",
+  "review.statisticsCoverageOverviewHint":
+    "本期已标记且匹配清单的 Episode / 本期涉及数据集的全量规模；跨数据集按真实权重汇总，不平均百分比。",
+  "review.statisticsDatasetCoverageColumn": "本期数据时长覆盖",
+  "review.statisticsDirectory": "质检记录目录",
+  "review.statisticsExportCsv": "导出质检统计 CSV",
+  "review.statisticsExportJson": "导出统计 JSON",
+  "review.statisticsLoadFailed": "质检情况统计加载失败。",
+  "review.statisticsTotal": "合计",
+  "review.statisticsPersonDaily": "每人每日检查量（UTC+8）",
+  "review.statisticsAllPeople": "全部质检员",
+  "review.statisticsFrames": "已检查 Episode 帧数",
+  "review.statisticsDuration": "已检查 Episode 数据时长",
+  "review.statisticsSize": "已检查 Episode 体量",
+  "review.statisticsHours": "小时",
+  "review.statisticsUnknown": "未知",
+  "review.statisticsKnown": "已知 {known}/{total}",
+  "review.statisticsDwell": "已记录停留时间（前台）",
+  "review.statisticsDwellKnown": "已记录 {known}/{total} 个标记，仅累计已知值",
+  "review.statisticsDwellKnownCompact": "已记录 {known}/{total}",
+  "review.statisticsCumulativeCompact": "累计",
+  "review.statisticsCheckedEpisodeShort": "已检查 Episode",
+  "review.statisticsContentDurationShort": "数据时长",
+  "review.statisticsPayloadShort": "体量",
+  "review.statisticsDwellShort": "已记录停留时间",
+  "review.statisticsForeground": "前台",
+  "review.statisticsTouchedShort": "涉及",
+  "review.statisticsDwellSnapshot": "对应 Episode 时长快照（按人次）",
+  "review.statisticsDwellHint":
+    "累计已保存标记的前台有效停留快照，单条最多为记录时 Episode 时长的 2 倍；不等于完整人工工时。按标记时间归属 UTC+8 日期，回填仍归原标记日期，不是逐日活动日志。历史缺失保留未知；Episode 时长快照独立展示，不参与内容覆盖率计算。",
+  "review.statisticsDwellChartUnknown":
+    "{count} 个人日缺少完整停留快照，未绘制数值；请查看明细中的已记录量。",
+  "review.statisticsWorkloadDuration": "已检查 Episode 时长（按人次累计）",
+  "review.statisticsUniqueDuration": "已检查 Episode 时长（去重）",
+  "review.statisticsWorkloadSize": "已检查 Episode 体量（按人次累计）",
+  "review.statisticsDatasetScale": "涉及数据集总规模（仅供参考）",
+  "review.statisticsTouchedDatasets": "涉及数据集数",
+  "review.statisticsCheckedOnlyHint":
+    "这里只累计有质检标记的 Episode；检查少量 Episode 不代表检查了整个数据集。已检查时长、帧数、体量均不使用数据集全量代替。",
+  "review.statisticsDatasetScaleHint":
+    "数据集全量规模仅作参考，不代表已完整检查。总帧数缺失且至少有两个有效 Episode 样本时，以平均帧数 × 总 Episode 数估算，再按 FPS 计算时长；v2 独立文件可按实测平均体量估算全量体量。单样本不外推，估算值标记 ≈ 及样本数；无 FPS 或样本不足时保留未知。检查进度按真实 Episode 集合核验，记录缺失、总数冲突或无法匹配时标为待核验。",
+  "review.statisticsDatasetTotalEpisodes": "数据集全部 Episode",
+  "review.statisticsDatasetTotalDuration": "数据集全部数据时长",
+  "review.statisticsDatasetTotalSize": "数据集全部体量",
+  "review.statisticsCoveredDatasetDuration": "数据集检查覆盖（去重）",
+  "review.statisticsPersonalCoverageHint":
+    "本期覆盖按本人已标记且匹配当前清单的 Episode 去重，分别计算数量、帧数、时长及体量，不平均各数据集百分比。累计覆盖包含当前行所涉及数据集在期初以前的现存标记，个人汇总截至筛选结束日、每日截至当天，不借用他人贡献。异常记录单列，不抹掉有效进度。记录只有 Episode 标记，不能证明逐帧观看、数据版本一致、抽检达标或质量验收通过；累计回看不是历史审计快照。",
+  "review.statisticsCoverageComplete": "清单内全部已标记",
+  "review.statisticsCoveragePartial": "清单内部分已标记",
+  "review.statisticsCoverageUnknown": "待核验",
+  "review.statisticsCoverageDetailTitle": "数据集检查明细",
+  "review.statisticsShowCoverageDetails": "展开明细",
+  "review.statisticsHideCoverageDetails": "收起明细",
+  "review.statisticsCoverageDetailSearch": "筛选数据集名称或路径",
+  "review.statisticsCoverageDetailCount": "显示 {visible} / {total} 个数据集",
+  "review.statisticsCoverageDetailEmpty": "没有匹配的数据集",
+  "review.statisticsCoverageSummary":
+    "全量标记 {complete} · 部分 {partial} · 待核验 {unknown}",
+  "review.statisticsCoverageUninspected": "尚无有效标记",
+  "review.statisticsCoverageEmpty": "空数据集",
+  "review.statisticsCoverageNotApplicable": "不适用",
+  "review.statisticsPeriodCoverage": "本期时长覆盖",
+  "review.statisticsCumulativeCoverage": "截至日期累计覆盖",
+  "review.statisticsFullyMarkedDuration": "全量标记数据集时长",
+  "review.statisticsFramesCoverage": "帧数覆盖",
+  "review.statisticsDurationCoverage": "数据时长覆盖",
+  "review.statisticsSizeCoverage": "体量覆盖",
+  "review.statisticsCrossCoverage": "独立复检 {checked}/{total}",
+  "review.statisticsUnmatchedCount": "已隔离无法匹配标记 {count}",
+  "review.coverageIssueMetadata": "元数据不可用，覆盖无法确认",
+  "review.coverageIssueManifest": "清单尚未完整核验，仅保留已知进度",
+  "review.coverageIssueCount": "清单与声明总数冲突，覆盖比例待核验",
+  "review.coverageIssueIdentity": "清单包含非法 Episode 身份",
+  "review.coverageIssueDuplicates": "清单存在重复 Episode，不能确认完整性",
+  "review.coverageIssueRead": "部分元数据读取或解析失败",
+  "review.coverageIssueUnmatched": "存在无法匹配当前清单的旧标记",
+  "review.coverageIssueInvalidRecords": "存在非法标记身份，已排除",
+  "review.coverageIssueWeight":
+    "汇总权重与 Episode 明细不一致，按完整明细重算或标为待核验",
+  "review.statisticsEstimateSample":
+    "按已知 Episode 均值估算 · 样本 {sample}/{total}",
+  "review.statisticsKnownDatasets": "已知 {known}/{total} 个数据集",
+  "review.statisticsAllDirectories": "跨目录：全部已注册目录",
+  "review.statisticsRecursive": "递归检索子目录记录文件",
+  "review.statisticsSources": "质检记录来源",
+  "review.statisticsSourceSummary":
+    "读取 {files} 个记录文件 · 遍历 {directories} 个目录 · 去重标记 {duplicates}",
+  "review.statisticsSourcePath": "记录文件路径",
+  "review.statisticsSourceDatasets": "文件内数据集条目",
+  "review.statisticsSourceRecords": "文件内标记（筛选/去重前）",
+  "review.statisticsSourceHint":
+    "兼容共享集合与单数据集记录文件；按数据集真实路径 + Episode + 人员去重，同名但不同路径的数据集独立统计。重复快照冲突时保留时间较新的标记；这不是完整质检审计历史。遍历不跟随符号链接目录或文件。",
+  "review.statisticsScanTruncated":
+    "已达到检索上限，当前统计不完整；请缩小目录范围后重试。",
+  "review.statisticsScanConflicts":
+    "发现重复快照冲突：{count}，已按最新标记时间合并，请核对来源文件。",
+  "review.statisticsEpisodeCoverage": "Episode 覆盖",
+  "review.statisticsWorkloadHint":
+    "人员/每日检查量仅累计已检查 Episode，按“人员 × Episode”计入，复检另计一次；去重检查量按“数据集真实路径 × Episode”计算。已检查时长 = 这些 Episode 的帧数 ÷ 各自 FPS，多路视频不重复计时；不使用所涉及数据集的全量时长，也不等于人工工时。体量仅含元数据引用的 parquet/视频文件；v3 共享文件按全部 Episode 帧数/各路片段时长占比分摊，以 ≈ 标注估算。未知值显示未知及已知覆盖数。元数据与文件大小最多缓存 60 秒。",
+  "review.statisticsDailyHint":
+    "按 UTC+8 自然日分组，每天 00:00（含）至次日 00:00（不含）。各日期图表共用刻度，只展示当天有已保存标记的人员，不为未检查者留位。工作量只累计当天标记；明细同时给出当天贡献与该行涉及数据集截至当天的累计覆盖。缺失权重保留已知值和可证实区间，估算显示 ≈，不作为验收或抽检达标证据。",
+  "review.statisticsDailySummary": "{people} 人 · {records} 个标记",
   "review.loading": "正在加载质检记录…",
+  "review.verifySave": "刷新核对",
+  "review.otherVerifications": "其他待核对操作（{count}）",
+  "review.verificationTarget": "质检员 {reviewer} · Episode {episode}",
+  "review.verificationSucceeded":
+    "Episode {episode} · {reviewer}：操作已确认，当前记录已刷新。",
+  "review.verificationFailed":
+    "Episode {episode} · {reviewer}：请求已结束但发生错误，当前记录已刷新。",
+  "review.saveNotSent":
+    "离开页面时此标记尚未发送，已取消排队；请核对当前状态后重新提交。",
+  "review.recoveryUnavailable":
+    "浏览器无法保存待核对操作，当前页面仍受保护；请完成核对后再刷新或关闭页面。",
+  "review.recoveryDamaged":
+    "待核对操作的本地恢复数据损坏，已停止提交。请保留本页和会话数据，由管理员核对服务端操作后恢复。",
+  "review.recoveryFull":
+    "待核对操作数量达到上限，请先核对已有操作，再提交新标记。",
+  "review.refreshTimeout": "质检记录读取超时，请检查网络后重新刷新核对",
+  "review.saveStillPending":
+    "服务端仍在处理该操作，暂不能重复提交，请稍后刷新核对。操作编号",
+  "review.saveEndedWithError":
+    "服务端请求已结束但保存报错，请核对当前状态后再操作",
+  "review.saveUnknown":
+    "保存结果尚未确认，请刷新核对后再操作；不要直接重复提交。操作编号",
   "review.checked": "已检查",
   "review.unchecked": "未检查",
   "review.reviewer": "质检员",
@@ -350,6 +523,16 @@ export const zh: Record<MessageKey, string> = {
   "review.saving": "正在保存…",
   "review.backgroundSaves": "{count} 个标记后台保存中，可继续切换 episode",
   "review.retrySave": "重试保存",
+  "review.lockBusy":
+    "其他服务正在保存质检记录，请稍后重试。本次请求未写入记录。",
+  "review.legacyLock":
+    "质检存储被旧版或未知写入服务占用。请管理员先暂停所有旧版保存，再使用恢复脚本处理遗留锁；请勿手动删除锁文件。",
+  "review.lockChanged":
+    "质检锁归属校验失败，本次保存可能未完成。请先核对本次结果，并联系管理员检查共享存储和写入服务。",
+  "review.lockDangling":
+    "检测到质检锁链接指向的归属目录已缺失，本次请求未写入记录。请管理员暂停所有写入服务后，使用悬空锁恢复命令处理；请勿直接删除系统锁文件。",
+  "review.lockUnavailable":
+    "质检存储锁不可用，请管理员检查文件权限、flock 及共享存储状态。",
   "review.undo": "撤销我的检查标记",
   "review.mark": "标记为已检查",
   "review.manualHint": "检查完成后手动标记；浏览或播放不会自动标记。",
@@ -371,6 +554,12 @@ export const zh: Record<MessageKey, string> = {
   "review.noMatches": "没有符合筛选条件的 Episode。",
 
   "ep.episodeLabel": "Episode · {id}",
+  "ep.redirectTitle": "请求的 episode 不可用",
+  "ep.redirectDescription":
+    "本地数据集中缺少 episode {requested} 的元数据，已自动跳转到最近可用的 episode {target}。",
+  "ep.redirectHint":
+    "如需查看原 episode，请从数据源补齐对应的元数据和数据文件。",
+  "ep.dismissRedirect": "关闭提示",
   "ep.editTags": "编辑标签",
   "ep.languageInstruction": "语言指令",
 
@@ -865,8 +1054,12 @@ export const zh: Record<MessageKey, string> = {
   "workbench.reportingDays": "{count} 个统计日",
   "workbench.dataUpdatedThrough": "数据更新至 {date}",
   "workbench.sources": "来源",
-  "workbench.startDate": "开始日期",
-  "workbench.endDate": "结束日期",
+  "workbench.startDate": "开始日期（当日 00:00，含）",
+  "workbench.calendarHint":
+    "全项目按北京时间（UTC+8）自然日统计，所有起止日期均为所选当日 00:00。范围包含开始、不包含结束；结束日期不自动顺延。",
+  "workbench.endDate": "结束日期（当日 00:00，不含）",
+  "workbench.emptyDateRangeHint":
+    "开始和结束均为同一天 00:00，当前范围为空。查看整天请将结束日期设为次日。",
   "workbench.quickRange": "快捷区间",
   "workbench.today": "今天",
   "workbench.yesterday": "昨天",

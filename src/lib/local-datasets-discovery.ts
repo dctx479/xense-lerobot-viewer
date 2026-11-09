@@ -1,4 +1,5 @@
 import type { AutoAnnotationDatasetSummary } from "@/types/auto-annotation.types";
+import { calendarDayKey } from "@/utils/calendarTime";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -233,16 +234,11 @@ const CHECKPOINT_FILE = ["meta", ".checkpoint.json"] as const;
 const CHECKPOINT_VERSION = 1;
 
 /**
- * The day as the machine's clock reads it, not UTC.
- *
- * An mtime is an instant, so unlike a `recorded_at` string off disk there is no
- * "as written" form to preserve; the day someone means by "when did this stop"
- * is their own. `isoDay` in `dataset-facets-server.ts` slices a string for the
- * opposite reason — there the timezone is already in the data.
+ * The project UTC+8 day of a filesystem instant, using the same conversion as
+ * capture timestamps and review records rather than the machine timezone.
  */
 function localDay(when: Date): string {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}`;
+  return calendarDayKey(when);
 }
 
 /**

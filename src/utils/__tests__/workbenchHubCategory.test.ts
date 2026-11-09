@@ -17,6 +17,10 @@ describe("TacVerse Hub categories", () => {
   test.each([
     ["TacVerse/taccap-g1-insert-divider-0904", {}, "taccap-g1"],
     ["TacVerse/taccap-g1-task-0228", {}, "taccap-g1"],
+    ["TacVerse/taccap-g1-task-261020", {}, "taccap-g1"],
+    ["TacVerse/taccap-g1-task-261020b", {}, "taccap-g1"],
+    ["TacVerse/taccap-g1-task-1020B", {}, "taccap-g1"],
+    ["TacVerse/taccap-g1-task-260230b", {}, "other"],
     ["TacVerse/taccap-g1-task-0230", {}, "other"],
     ["TacVerse/taccap-g1-task-1331", {}, "other"],
     ["TacVerse/taccap-g1-task", {}, "taccap-g1-merged"],

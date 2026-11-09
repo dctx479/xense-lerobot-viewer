@@ -16,6 +16,23 @@ async function writeMeta(dir: string, rel: string, body: unknown) {
 }
 
 describe("readCaptureDates", () => {
+  test("converts recorded instants to UTC+8 before deriving the capture span", async () => {
+    const dir = path.join(await scratch(), "taccap-g1-x-0704");
+    await writeMeta(dir, "meta/hardware.json", {
+      epochs: [
+        { recorded_at: "2026-10-31T15:59:59.999Z" },
+        { recorded_at: "2026-10-31T16:00:00.000Z" },
+        { recorded_at: "2026-11-01T01:00:00+09:00" },
+        { recorded_at: "2026-11-31T01:00:00Z" },
+      ],
+    });
+    expect(await readCaptureDates(dir)).toEqual({
+      capturedFrom: "2026-10-31",
+      capturedTo: "2026-11-01",
+      dateEvidence: "manifest",
+    });
+  });
+
   test("prefers hardware.json recorded_at — the only real measurement", async () => {
     const dir = path.join(await scratch(), "taccap-g1-x-0704");
     await writeMeta(dir, "meta/hardware.json", {

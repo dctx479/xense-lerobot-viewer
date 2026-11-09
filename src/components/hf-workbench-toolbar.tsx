@@ -91,7 +91,7 @@ export default function HfWorkbenchToolbar({
       const response = await fetch("/api/hf/catalog", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ org: source }),
+        body: JSON.stringify({ org: source, force: true }),
         signal: controller.signal,
         cache: "no-store",
       });

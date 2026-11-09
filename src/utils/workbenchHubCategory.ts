@@ -1,3 +1,4 @@
+import { isCalendarDay } from "@/utils/calendarTime";
 import { bucketOf } from "@/lib/dataset-facets";
 
 export type TacverseHubCategory =
@@ -72,13 +73,14 @@ export type WorkbenchDateSuffix = {
  * Parse the date suffixes used by the corpus:
  * - `-MMDD` uses the catalog/update year as its year;
  * - `-YYMMDD` carries the two-digit year explicitly (`260915` -> 2026-09-15).
+ * Both forms may end in a letter batch marker (`261020b` -> 2026-10-20).
  */
 export function parseWorkbenchDateSuffix(
   value: string,
 ): WorkbenchDateSuffix | null {
   const leaf = pathSegments(value).at(-1) ?? "";
-  const explicit = /-(\d{2})(\d{2})(\d{2})$/u.exec(leaf);
-  const monthDay = /-(\d{2})(\d{2})$/u.exec(leaf);
+  const explicit = /-(\d{2})(\d{2})(\d{2})[A-Za-z]*$/u.exec(leaf);
+  const monthDay = /-(\d{2})(\d{2})[A-Za-z]*$/u.exec(leaf);
   const match = explicit ?? monthDay;
   if (!match) return null;
 
@@ -86,12 +88,12 @@ export function parseWorkbenchDateSuffix(
   const month = Number(explicit ? match[2] : match[1]);
   const day = Number(explicit ? match[3] : match[2]);
   const validationYear = year ?? 2026;
-  const candidate = new Date(Date.UTC(validationYear, month - 1, day));
-  if (
-    candidate.getUTCFullYear() !== validationYear ||
-    candidate.getUTCMonth() !== month - 1 ||
-    candidate.getUTCDate() !== day
-  ) {
+  const candidate = [
+    validationYear,
+    String(month).padStart(2, "0"),
+    String(day).padStart(2, "0"),
+  ].join("-");
+  if (!isCalendarDay(candidate)) {
     return null;
   }
   return { year, month, day };
@@ -171,7 +173,10 @@ export function classifyTacverseHubRepository(
         : null,
     };
   }
-  if (name.startsWith("taccap-g1-") && !/-\d{4}$/u.test(name)) {
+  if (
+    name.startsWith("taccap-g1-") &&
+    !/-(?:\d{6}|\d{4})[A-Za-z]*$/u.test(name)
+  ) {
     const robotType = input.robotType?.trim() || null;
     return {
       category: "taccap-g1-merged",

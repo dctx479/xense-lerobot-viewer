@@ -78,9 +78,9 @@ describe("viewer Hugging Face token store", () => {
 
   test("leaves CLI cache credentials for huggingface_hub to refresh", () => {
     expect(tokenForPython({ token: "hf_cached", source: "cache" })).toBeNull();
-    expect(
-      tokenForPython({ token: "hf_viewer", source: "viewer" }),
-    ).toBe("hf_viewer");
+    expect(tokenForPython({ token: "hf_viewer", source: "viewer" })).toBe(
+      "hf_viewer",
+    );
     expect(
       tokenForPython({ token: "hf_environment", source: "environment" }),
     ).toBe("hf_environment");

@@ -101,8 +101,8 @@ export const en = {
   "grid.dateAll": "All",
   "grid.dateRange": "Range",
   "grid.dateUnknown": "No date ({count})",
-  "grid.dateFrom": "Start date",
-  "grid.dateTo": "End date",
+  "grid.dateFrom": "Start date (00:00, inclusive)",
+  "grid.dateTo": "End date (00:00, exclusive)",
   "grid.dateClear": "Clear",
   "grid.datePresetCutoff": "From {date}",
   "grid.datePresetCutoffHint":
@@ -354,7 +354,193 @@ export const en = {
   "review.crossMarkShort": "Cross-review",
   "review.undoShort": "Undo mark",
   "review.title": "Human inspection",
+  "workbench.reviewStatistics": "Inspection statistics",
+  "review.statisticsHint":
+    "Saved human inspection marks in the selected directory. Two or more independent inspectors indicate cross-review, not a quality pass. Removed marks are not retained as history.",
+  "review.statisticsDateHint":
+    "Defaults to today in UTC+8: today at 00:00 (included) to tomorrow at 00:00 (excluded). Every selected date means its own midnight; the end date is never advanced automatically. Marks after midnight belong to the new day. Only surviving marks per inspector and episode are available, not a complete repeat-inspection history.",
+  "review.statisticsDateWindow":
+    "Selected window: {start} 00:00 (inclusive) to {end} 00:00 (exclusive), UTC+8",
+  "review.statisticsDateWindowFrom":
+    "Selected window: from {start} 00:00 (inclusive), no end date, UTC+8",
+  "review.statisticsDateWindowUntil":
+    "Selected window: before {end} 00:00 (exclusive), no start date, UTC+8",
+  "review.statisticsDateWindowOpen": "Selected window: all dates (UTC+8)",
+  "review.statisticsCutoffTime": "Before {date} 00:00 (UTC+8, exclusive)",
+  "review.statisticsDatasets": "Datasets touched by inspections",
+  "review.statisticsEpisodes": "Inspected episodes",
+  "review.statisticsPending": "Awaiting cross-review",
+  "review.statisticsCrossReviewed": "Cross-reviewed episodes",
+  "review.statisticsRecords": "Saved inspection marks",
+  "review.statisticsPeople": "Active inspectors",
+  "review.statisticsTrend": "Daily inspection marks (UTC+8)",
+  "review.statisticsDay": "Inspection date",
+  "review.statisticsInitialMarks": "Initial inspection marks",
+  "review.statisticsCrossMarks": "Cross-review marks",
+  "review.statisticsPeopleTitle": "Inspector workload",
+  "review.statisticsDatasetsTitle": "Inspection by dataset",
+  "review.statisticsLastReview": "Last inspection (UTC+8)",
+  "review.statisticsSearch": "Filter by dataset name",
+  "review.statisticsEmpty":
+    "No saved inspection marks match this selection. Mark episodes after inspecting them in Episodes or 3D Replay, or select another directory or date range.",
+  "review.statisticsInvalidRange": "Start date must not follow end date.",
+  "review.statisticsAllDates": "All dates",
+  "review.statisticsToday": "Today",
+  "review.statisticsLast7Days": "Last 7 days",
+  "review.statisticsMarksUnit": "marks",
+  "review.statisticsDailySummary": "{people} inspectors · {records} marks",
+  "review.statisticsSeconds": "seconds",
+  "review.statisticsMinutes": "minutes",
+  "review.statisticsEstimatedPayload": "≈ Shared payload allocation estimate",
+  "review.statisticsChartUnknown":
+    "{count} person-day metrics are incomplete and are not plotted. See known amounts in the detail rows.",
+  "review.statisticsKnownWeight": "Known amount",
+  "review.statisticsCoverageInferred":
+    "Ratio inferred from the verified manifest, total and unchecked details; the known amount shows measured content only.",
+  "review.statisticsCoverageEstimate":
+    "Includes estimates; reference only, never evidence of completeness or acceptance.",
+  "review.statisticsCoverageBounds":
+    "Solid fill is the confirmed lower bound; light fill is the possible upper bound. Missing weights are not zero.",
+  "review.statisticsCoverageManifest":
+    "Calculated from the complete episode details.",
+  "review.statisticsCoverageDeclared":
+    "Denominator uses the full total declared in dataset metadata.",
+  "review.statisticsCoverageIssues": "{count} verification notices",
+  "review.statisticsCoverageOverview": "Inspection coverage overview",
+  "review.statisticsCoverageOverviewHint":
+    "Period marks matching the manifest / full scale of datasets touched in the period. Dataset weights are summed; percentages are never averaged.",
+  "review.statisticsDatasetCoverageColumn": "Period content duration coverage",
+  "review.statisticsDirectory": "Inspection records directory",
+  "review.statisticsExportCsv": "Export inspection statistics CSV",
+  "review.statisticsExportJson": "Export statistics JSON",
+  "review.statisticsLoadFailed": "Inspection statistics could not be loaded.",
+  "review.statisticsTotal": "Total",
+  "review.statisticsPersonDaily": "Daily workload per inspector (UTC+8)",
+  "review.statisticsAllPeople": "All inspectors",
+  "review.statisticsFrames": "Checked episode frames",
+  "review.statisticsDuration": "Checked episode content duration",
+  "review.statisticsSize": "Checked episode payload",
+  "review.statisticsHours": "hours",
+  "review.statisticsUnknown": "Unknown",
+  "review.statisticsKnown": "Known {known}/{total}",
+  "review.statisticsDwell": "Recorded foreground dwell time",
+  "review.statisticsDwellKnown":
+    "Recorded for {known}/{total} marks; known amounts only",
+  "review.statisticsDwellKnownCompact": "Recorded {known}/{total}",
+  "review.statisticsCumulativeCompact": "To date",
+  "review.statisticsCheckedEpisodeShort": "Checked episodes",
+  "review.statisticsContentDurationShort": "Content duration",
+  "review.statisticsPayloadShort": "Payload",
+  "review.statisticsDwellShort": "Recorded dwell",
+  "review.statisticsForeground": "Foreground",
+  "review.statisticsTouchedShort": "Touches",
+  "review.statisticsDwellSnapshot":
+    "Corresponding episode duration snapshots (person-marks)",
+  "review.statisticsDwellHint":
+    "Sum of saved foreground dwell snapshots, each capped at twice the episode duration when recorded; not complete human work time. Dates follow the mark timestamp in UTC+8, including backfills on the original mark date, not a daily activity log. Missing legacy values remain unknown. Episode duration snapshots are separate and never used for content coverage.",
+  "review.statisticsDwellChartUnknown":
+    "{count} person-days lack complete dwell snapshots and are not plotted. See recorded amounts in the details.",
+  "review.statisticsWorkloadDuration":
+    "Checked episode duration (person-marks)",
+  "review.statisticsUniqueDuration": "Checked episode duration (unique)",
+  "review.statisticsWorkloadSize": "Checked episode payload (person-marks)",
+  "review.statisticsDatasetScale": "Touched dataset scale (reference only)",
+  "review.statisticsTouchedDatasets": "Datasets touched",
+  "review.statisticsCheckedOnlyHint":
+    "Only marked episodes count here. Checking a few episodes does not mean checking an entire dataset; full dataset totals never substitute for checked episode duration, frames or payload.",
+  "review.statisticsDatasetScaleHint":
+    "Full dataset scale is reference only and does not mean a completed inspection. Missing frame totals require at least two valid episode samples before mean frames × total episode count estimates the scale; FPS determines duration. Independent v2 payload samples can estimate full payload size. A single sample is never extrapolated. Estimates show ≈ and sample counts; insufficient samples or missing FPS remain unknown. Progress is checked against real episode identities; unmatched records, conflicting totals or missing evidence require verification.",
+  "review.statisticsDatasetTotalEpisodes": "All dataset episodes",
+  "review.statisticsDatasetTotalDuration": "Full dataset content duration",
+  "review.statisticsDatasetTotalSize": "Full dataset payload",
+  "review.statisticsCoveredDatasetDuration":
+    "Dataset inspection coverage (unique)",
+  "review.statisticsPersonalCoverageHint":
+    "Period coverage deduplicates this inspector's marked episodes matching the current manifest, with separate episode, frame, duration and payload weights; dataset percentages are never averaged. Cumulative coverage includes surviving marks before the period, scoped to datasets in the current row, through the reporting end or that day. Other inspectors' marks do not add personal coverage. Unmatched records are isolated without discarding valid progress. Episode marks do not prove frame-by-frame viewing, matching data revisions, sampling adequacy or quality acceptance. Looking back at surviving marks is not a historical audit snapshot.",
+  "review.statisticsCoverageComplete": "Every manifest episode marked",
+  "review.statisticsCoveragePartial": "Some manifest episodes marked",
+  "review.statisticsCoverageUnknown": "Unverified",
+  "review.statisticsCoverageDetailTitle": "Dataset inspection details",
+  "review.statisticsShowCoverageDetails": "Show details",
+  "review.statisticsHideCoverageDetails": "Hide details",
+  "review.statisticsCoverageDetailSearch": "Filter by dataset name or path",
+  "review.statisticsCoverageDetailCount":
+    "Showing {visible} / {total} datasets",
+  "review.statisticsCoverageDetailEmpty": "No matching datasets",
+  "review.statisticsCoverageSummary":
+    "All marked {complete} · partial {partial} · unverified {unknown}",
+  "review.statisticsCoverageUninspected": "No valid marks yet",
+  "review.statisticsCoverageEmpty": "Empty dataset",
+  "review.statisticsCoverageNotApplicable": "Not applicable",
+  "review.statisticsPeriodCoverage": "Period duration coverage",
+  "review.statisticsCumulativeCoverage": "Cumulative coverage at cutoff",
+  "review.statisticsFullyMarkedDuration": "Fully marked dataset duration",
+  "review.statisticsFramesCoverage": "Frame coverage",
+  "review.statisticsDurationCoverage": "Content duration coverage",
+  "review.statisticsSizeCoverage": "Payload coverage",
+  "review.statisticsCrossCoverage": "Independent rechecks {checked}/{total}",
+  "review.statisticsUnmatchedCount": "Isolated unmatched marks {count}",
+  "review.coverageIssueMetadata":
+    "Metadata unavailable; coverage cannot be verified",
+  "review.coverageIssueManifest":
+    "Manifest not fully verified; known progress retained",
+  "review.coverageIssueCount": "Manifest and declared episode counts conflict",
+  "review.coverageIssueIdentity":
+    "Manifest contains invalid episode identities",
+  "review.coverageIssueDuplicates":
+    "Duplicate manifest episodes prevent completeness verification",
+  "review.coverageIssueRead": "Some metadata could not be read or parsed",
+  "review.coverageIssueUnmatched":
+    "Saved marks do not match the current manifest",
+  "review.coverageIssueInvalidRecords": "Invalid mark identities excluded",
+  "review.coverageIssueWeight":
+    "Summary weights conflict with episode details; recomputed from complete details or left unverified",
+  "review.statisticsEstimateSample":
+    "Estimated from mean known episode · sample {sample}/{total}",
+  "review.statisticsKnownDatasets": "Known for {known}/{total} datasets",
+  "review.statisticsAllDirectories": "Across all registered directories",
+  "review.statisticsRecursive": "Recursively find records in subdirectories",
+  "review.statisticsSources": "Inspection record sources",
+  "review.statisticsSourceSummary":
+    "Read {files} record files · scanned {directories} directories · removed {duplicates} duplicate marks",
+  "review.statisticsSourcePath": "Record file path",
+  "review.statisticsSourceDatasets": "Dataset entries in file",
+  "review.statisticsSourceRecords": "Marks before filtering/deduplication",
+  "review.statisticsSourceHint":
+    "Supports collection and single-dataset files. Deduplication uses the real dataset path + episode + inspector; same-named datasets at different paths stay separate. Conflicting snapshots retain the later mark; this is not a complete inspection audit log. Directory and file symlinks are not followed.",
+  "review.statisticsScanTruncated":
+    "The discovery limit was reached; statistics are incomplete. Select a narrower directory scope and retry.",
+  "review.statisticsScanConflicts":
+    "Found {count} conflicting duplicate snapshots. Retained the later marks; check the source files.",
+  "review.statisticsEpisodeCoverage": "Episode coverage",
+  "review.statisticsWorkloadHint":
+    "Person/day workload sums only marked episodes, once per inspector × episode; cross-reviews count again. Unique checks use real dataset path × episode. Checked duration = those episodes' frames / their FPS, counted once across video streams; full touched-dataset duration is never substituted, and this is not human working time. Payload includes metadata-referenced parquet/video files only; shared v3 files are apportioned by all episodes' frames/per-stream segment duration and marked ≈ (estimated). Unknown values retain known coverage counts. Metadata and sizes are cached for up to 60 seconds.",
+  "review.statisticsDailyHint":
+    "Grouped by UTC+8 calendar day: 00:00 inclusive to the next midnight exclusive. All dates share the same chart scale and include only inspectors with saved marks that day. Workload counts that day's marks; details distinguish their contribution from cumulative progress through that day for datasets in the row. Missing weights retain known values and provable bounds. Estimates show ≈ and never establish quality acceptance or sampling adequacy.",
   "review.loading": "Loading inspection records…",
+  "review.verifySave": "Refresh and verify",
+  "review.otherVerifications": "Other unconfirmed saves ({count})",
+  "review.verificationTarget": "Episode {episode} · {reviewer}",
+  "review.verificationSucceeded":
+    "Episode {episode} · {reviewer}: operation confirmed. Current records have been refreshed.",
+  "review.verificationFailed":
+    "Episode {episode} · {reviewer}: the request ended with an error. Current records have been refreshed.",
+  "review.saveNotSent":
+    "This mark was still queued when the page was left and was not sent. Verify the current state before submitting it again.",
+  "review.recoveryUnavailable":
+    "The browser cannot retain pending operations. This page remains guarded; verify outstanding saves before reloading or closing it.",
+  "review.recoveryDamaged":
+    "Local recovery data is damaged, so new saves are blocked. Keep this page and session data; ask an administrator to verify server operations before recovery.",
+  "review.recoveryFull":
+    "The pending operation limit is reached. Verify existing operations before submitting new marks.",
+  "review.refreshTimeout":
+    "Inspection records timed out. Check the connection and refresh to verify.",
+  "review.saveStillPending":
+    "The server is still processing this operation. Do not resubmit; refresh to verify later. Operation",
+  "review.saveEndedWithError":
+    "The server request ended with a save error. Verify the current state before acting.",
+  "review.saveUnknown":
+    "Save outcome is unknown. Refresh and verify before acting; do not resubmit blindly. Operation",
   "review.checked": "Inspected",
   "review.unchecked": "Not inspected",
   "review.reviewer": "Inspector",
@@ -363,6 +549,16 @@ export const en = {
   "review.backgroundSaves":
     "{count} marks saving in the background; you can switch episodes",
   "review.retrySave": "Retry save",
+  "review.lockBusy":
+    "Another service is saving inspection records. Retry shortly. This request did not write any records.",
+  "review.legacyLock":
+    "Inspection storage is held by a legacy or unknown writer. An administrator must pause all legacy saves before using the recovery script. Do not manually delete lock files.",
+  "review.lockChanged":
+    "Inspection lock ownership verification failed. This save may not have completed. Verify this operation and ask an administrator to check shared storage and writer services.",
+  "review.lockDangling":
+    "The inspection lock points to a missing owner directory. This request did not write any records. An administrator must pause all writers and use dangling-lock recovery. Do not delete the system lock file.",
+  "review.lockUnavailable":
+    "The inspection storage lock is unavailable. Ask an administrator to check permissions, flock, and shared storage.",
   "review.undo": "Undo my inspection",
   "review.mark": "Mark as inspected",
   "review.manualHint":
@@ -385,6 +581,12 @@ export const en = {
   "review.noMatches": "No episodes match these filters.",
 
   "ep.episodeLabel": "Episode · {id}",
+  "ep.redirectTitle": "Requested episode is unavailable",
+  "ep.redirectDescription":
+    "Episode {requested} has no metadata in this local dataset. You have been redirected to the nearest available episode, {target}.",
+  "ep.redirectHint":
+    "To view the original episode, restore its metadata and data files from the dataset source.",
+  "ep.dismissRedirect": "Dismiss",
   "ep.editTags": "Edit tags",
   "ep.languageInstruction": "Language Instruction",
 
@@ -902,8 +1104,12 @@ export const en = {
   "workbench.reportingDays": "{count} reporting days",
   "workbench.dataUpdatedThrough": "Data updated through {date}",
   "workbench.sources": "Sources",
-  "workbench.startDate": "Start date",
-  "workbench.endDate": "End date",
+  "workbench.startDate": "Start date (00:00, inclusive)",
+  "workbench.calendarHint":
+    "All modules use UTC+8 calendar days. Every selected date means that day's 00:00. Ranges include the start and exclude the end; the end date is never advanced automatically.",
+  "workbench.endDate": "End date (00:00, exclusive)",
+  "workbench.emptyDateRangeHint":
+    "Both endpoints are the same midnight, so this range is empty. To view a full day, set the end date to the following day.",
   "workbench.quickRange": "Quick range",
   "workbench.today": "Today",
   "workbench.yesterday": "Yesterday",

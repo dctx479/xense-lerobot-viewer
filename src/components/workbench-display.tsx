@@ -1,6 +1,11 @@
 "use client";
 
 import {
+  formatCalendarDateTime,
+  calendarDateInputRange,
+} from "@/utils/calendarTime";
+
+import {
   type CSSProperties,
   type ReactNode,
   memo,
@@ -134,22 +139,19 @@ function formatRange(
   snapshot: WorkbenchDisplaySnapshot,
   t: Translator,
 ): string {
-  const { startDate, endDate } = snapshot.dateRange;
+  const { startDate, endDate } = calendarDateInputRange(snapshot.dateRange);
   if (!startDate && !endDate) return t("workbench.rangeNoDate");
-  return `${startDate ?? t("workbench.beginning")} → ${endDate ?? t("workbench.latest")}`;
+  return `${startDate || t("workbench.beginning")} → ${endDate || t("workbench.latest")}`;
 }
 
 function formatCapturedAt(value: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return new Intl.DateTimeFormat("en-GB", {
+  return formatCalendarDateTime(value, "en-GB", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false,
-  }).format(parsed);
+  });
 }
 
 function useReducedMotion(): boolean {
@@ -638,7 +640,9 @@ function WorkstationHeatmapSlide({
             ? t("workbench.noDataSince", { date: "2026-08-22" })
             : t("workbench.windowMeta", {
                 start: "2026-08-22",
-                end: snapshot.dateRange.endDate ?? t("workbench.latest"),
+                end:
+                  calendarDateInputRange(snapshot.dateRange).endDate ||
+                  t("workbench.latest"),
                 page: windowPage.pageIndex + 1,
                 pages: windowPage.pageCount,
                 count: snapshot.heatmapRows.length,

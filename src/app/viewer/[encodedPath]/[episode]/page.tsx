@@ -3,14 +3,19 @@ import { cookies } from "next/headers";
 import { resolveBrowsePath } from "@/lib/dataset-locations-store";
 import { resolveLocalDatasetRoot } from "@/lib/local-datasets-discovery";
 import { BROWSE_PATH_COOKIE } from "@/utils/browsePath";
+import EpisodeRedirectNotice from "@/components/episode-redirect-notice";
 import { Suspense } from "react";
 import fs from "node:fs/promises";
 import path from "node:path";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   decodeLocalDatasetPath,
+  makeLocalRepoId,
+  routePathFromRepoId,
   resolveServerLocalDatasetPath,
 } from "@/utils/datasetRoute";
+import { listV3EpisodeIndices } from "@/lib/parquet-server";
 import { richInterpolate } from "@/i18n/rich";
 import { getServerLocale } from "@/i18n/locale-server";
 import { MESSAGES, type MessageKey } from "@/i18n/messages";
@@ -192,10 +197,13 @@ function IntegrityErrorPage({
 
 export default async function LocalEpisodePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ encodedPath: string; episode: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { encodedPath, episode } = await params;
+  const query = await searchParams;
   const episodeNumber = Number(episode.replace(/^episode_/, ""));
 
   // Server component — no React context here, so the dictionary is looked up
@@ -215,14 +223,55 @@ export default async function LocalEpisodePage({
     resolveLocalDatasetRoot(),
     (await cookies()).get(BROWSE_PATH_COOKIE)?.value,
   );
+  const episodeIndices = await listV3EpisodeIndices(datasetPath);
+  if (episodeIndices.length > 0 && !episodeIndices.includes(episodeNumber)) {
+    const requestedIndex = Number.isSafeInteger(episodeNumber)
+      ? episodeNumber
+      : episodeIndices[0];
+    const closestIndex = episodeIndices.reduce((closest, candidate) =>
+      Math.abs(candidate - requestedIndex) < Math.abs(closest - requestedIndex)
+        ? candidate
+        : closest,
+    );
+    const redirectParams = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (Array.isArray(value)) {
+        for (const item of value) redirectParams.append(key, item);
+      } else if (value !== undefined) {
+        redirectParams.set(key, value);
+      }
+    }
+    redirectParams.set("redirectedFromEpisode", String(episodeNumber));
+    redirect(
+      `${routePathFromRepoId(makeLocalRepoId(datasetPath), closestIndex)}?${redirectParams}`,
+    );
+  }
+
+  const redirectedFrom = query.redirectedFromEpisode;
+  const requestedEpisode =
+    typeof redirectedFrom === "string" && /^\d+$/.test(redirectedFrom)
+      ? Number(redirectedFrom)
+      : NaN;
+  const showRedirectNotice =
+    Number.isSafeInteger(requestedEpisode) &&
+    episodeIndices.includes(episodeNumber) &&
+    !episodeIndices.includes(requestedEpisode);
 
   return (
     <Suspense fallback={null}>
+      {showRedirectNotice && (
+        <EpisodeRedirectNotice
+          key={`${requestedEpisode}:${episodeNumber}`}
+          requestedEpisode={requestedEpisode}
+          targetEpisode={episodeNumber}
+        />
+      )}
       <EpisodeViewer
         reviewBrowsePath={reviewBrowsePath}
         org="_local"
         dataset={encodedPath}
         episodeId={episodeNumber}
+        episodeIndices={episodeIndices.length > 0 ? episodeIndices : undefined}
       />
     </Suspense>
   );

@@ -1,5 +1,7 @@
 "use client";
 
+import { calendarDayKey } from "@/utils/calendarTime";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useT } from "@/context/locale-context";
 import type { InterpolationVars } from "@/i18n/format";
@@ -32,11 +34,7 @@ type WorkbenchPersonnelMappingEditorProps = {
 };
 
 function todayDay(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return calendarDayKey();
 }
 
 function compareWorkstations(left: string, right: string): number {

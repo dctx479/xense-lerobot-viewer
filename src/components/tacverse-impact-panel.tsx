@@ -1,5 +1,7 @@
 "use client";
 
+import { formatCalendarDateTime, shiftCalendarDay } from "@/utils/calendarTime";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
@@ -363,21 +365,11 @@ function formatAddedInteger(value: number): string {
 }
 
 function formatDate(value: string | null, locale: string): string {
-  if (!value) return "—";
-  const date = new Date(value.length === 10 ? `${value}T00:00:00Z` : value);
-  if (Number.isNaN(date.valueOf())) return value;
-  return new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", {
+  return formatCalendarDateTime(value, locale === "zh" ? "zh-CN" : "en-US", {
     year: "numeric",
     month: "short",
     day: "2-digit",
-    timeZone: "Asia/Shanghai",
-  }).format(date);
-}
-
-function addUtcDays(value: string, days: number): string {
-  const date = new Date(`${value}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
+  });
 }
 
 function interpolate(template: string, values: Record<string, string>): string {
@@ -698,7 +690,7 @@ export default function TacVerseImpactPanel() {
     : c.advancedMissing;
   const latestPublishedDay = sourceView.coverage.total?.end ?? null;
   const latestPublishedEnd = latestPublishedDay
-    ? addUtcDays(latestPublishedDay, 1)
+    ? shiftCalendarDay(latestPublishedDay, 1)
     : null;
   const latestPublishedDownloads = sourceView.daily.find(
     (row) => row.date === latestPublishedDay,

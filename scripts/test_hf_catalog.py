@@ -10,6 +10,24 @@ import hf_catalog
 
 
 class CatalogEntryTest(unittest.TestCase):
+    def test_same_sha_failed_metadata_is_retried_and_force_replaces_old_totals(self) -> None:
+        item = types.SimpleNamespace(id="TacVerse/example", sha="same-sha")
+        for state, force in [("error", False), ("partial", False), ("unknown", False), ("ok", True)]:
+            with self.subTest(state=state, force=force), tempfile.TemporaryDirectory() as root, patch.object(
+                hf_catalog,
+                "read_downloaded_info",
+                return_value={"total_episodes": 8, "total_frames": 28800, "fps": 10},
+            ) as download:
+                entry = hf_catalog.build_entry(
+                    object(), item, Path(root), None,
+                    {"sha": "same-sha", "metadataState": state, "totalEpisodes": 1},
+                    force,
+                )
+            download.assert_called_once_with("TacVerse/example", "meta/info.json", None, "same-sha")
+            self.assertEqual(entry["metadataState"], "ok")
+            self.assertEqual(entry["totalEpisodes"], 8)
+            self.assertEqual(entry["durationHours"], 0.8)
+
     def test_storage_falls_back_to_repository_detail_when_listing_omits_it(self) -> None:
         item = types.SimpleNamespace(
             id="TacVerse/example",
@@ -24,7 +42,11 @@ class CatalogEntryTest(unittest.TestCase):
                 self.kwargs = kwargs
                 return types.SimpleNamespace(used_storage=1234)
 
-        with tempfile.TemporaryDirectory() as root:
+        with tempfile.TemporaryDirectory() as root, patch.object(
+            hf_catalog,
+            "read_downloaded_info",
+            return_value={"total_episodes": 1, "total_frames": 30, "fps": 30},
+        ):
             entry = hf_catalog.build_entry(
                 Api(),
                 item,

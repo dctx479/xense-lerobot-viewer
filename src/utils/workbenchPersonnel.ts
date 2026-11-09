@@ -1,3 +1,4 @@
+import { calendarDays } from "@/utils/calendarTime";
 import type {
   WorkbenchEffectivePersonnelSchedule,
   WorkbenchPersonnelConfig,
@@ -32,8 +33,6 @@ import {
   resolveWorkbenchPersonRole,
   resolveWorkbenchStaffing,
 } from "@/utils/workbenchConfiguration";
-
-const DAY_MS = 86_400_000;
 
 function cloneAssignments(
   assignments: readonly WorkbenchPersonnelScheduleAssignment[],
@@ -71,23 +70,10 @@ export function resolveWorkbenchPersonnelSchedule(
   };
 }
 
-function dayValue(day: string | null): number | null {
-  if (!day || !/^\d{4}-\d{2}-\d{2}$/u.test(day)) return null;
-  const [year, month, date] = day.split("-").map(Number);
-  const value = Date.UTC(year, month - 1, date);
-  return new Date(value).toISOString().slice(0, 10) === day ? value : null;
-}
-
 function daysInRange(range: WorkbenchRollupDateRange): string[] {
-  const start = dayValue(range.startDate);
-  const end = dayValue(range.endDate);
-  if (start === null || end === null || start === end) return [];
-  const [left, right] = start < end ? [start, end] : [end, start];
-  const days: string[] = [];
-  for (let value = left; value < right; value += DAY_MS) {
-    days.push(new Date(value).toISOString().slice(0, 10));
-  }
-  return days;
+  if (!range.startDate || !range.endDate) return [];
+  const [start, end] = [range.startDate, range.endDate].sort();
+  return calendarDays(start, end);
 }
 
 function roundHours(value: number): number {

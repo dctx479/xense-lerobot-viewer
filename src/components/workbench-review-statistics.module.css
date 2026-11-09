@@ -1,0 +1,299 @@
+.container {
+  container-type: inline-size;
+  min-width: 0;
+  width: 100%;
+}
+
+.chart {
+  container-type: inline-size;
+}
+
+.chart :global(.recharts-tooltip-wrapper) {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Recharts retains the previous coordinate on inactive tooltips after resize. */
+.chart :global(.recharts-tooltip-wrapper[style*="visibility: hidden"]) {
+  transform: none !important;
+}
+
+/* Phone plots can be narrower than their tooltip after reserving axis labels. */
+@container (max-width: 480px) {
+  .chart :global(.recharts-tooltip-wrapper) {
+    transform: none !important;
+  }
+}
+
+/* One DOM and one expansion state; narrow layouts reflow rather than scroll. */
+.table {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.table > colgroup {
+  display: none;
+}
+
+.table > thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.table > tbody,
+.table > tfoot {
+  display: block;
+}
+
+.table > tbody > tr,
+.table > tfoot > tr {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: row dense;
+}
+
+.table tr[hidden] {
+  display: none !important;
+}
+
+.table tr > th,
+.table tr > td {
+  position: static;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  padding: 12px;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.table [data-label]::before {
+  content: attr(data-label);
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.table tr > th[scope="row"] {
+  grid-column: 1 / -1;
+  background: var(--surface-1);
+}
+
+.table[data-review-table="daily"]
+  tr[data-review-row="summary"]
+  > :nth-child(-n + 2) {
+  grid-column: auto;
+  background: var(--surface-1);
+}
+
+.table[data-review-table="people"]
+  tr[data-review-row="summary"]
+  > :nth-last-child(2),
+.table[data-review-table="datasets"] tbody > tr > :last-child {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+.table tr > .coverageCell {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.table tr[data-review-row="day"],
+.table tr[data-review-row="details"] {
+  display: block;
+}
+
+.table tr[data-review-row="day"] > th {
+  width: 100%;
+}
+
+.table td[colspan] > [role="region"] {
+  position: static;
+  width: 100%;
+}
+
+.table tfoot td:empty {
+  display: none;
+}
+
+.table [data-workload-metric],
+.table [data-review-dwell],
+.table [data-review-dwell] div {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.table[data-review-table="scale"] td > div {
+  min-width: 0;
+}
+
+@container (min-width: 700px) {
+  .table > tbody > tr,
+  .table > tfoot > tr {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .table[data-review-table="daily"]
+    tr[data-review-row="summary"]
+    > :nth-child(-n + 2) {
+    grid-column: span 2;
+  }
+
+  .table[data-review-table="people"] tr[data-review-row="summary"] > th,
+  .table[data-review-table="datasets"] tbody > tr > th {
+    grid-column: 1 / 3;
+  }
+
+  .table[data-review-table="people"]
+    tr[data-review-row="summary"]
+    > :nth-last-child(2),
+  .table[data-review-table="datasets"] tbody > tr > :last-child {
+    grid-column: 3 / 5;
+    grid-row: 1;
+  }
+}
+
+@container (min-width: 1000px) {
+  .dense > tbody > tr,
+  .dense > tfoot > tr {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(260px, 1.5fr);
+  }
+
+  .dense tr > .coverageCell {
+    grid-column: 5;
+    grid-row: 1 / span 3;
+    align-content: center;
+    border-top: 0;
+    border-left: 1px solid var(--border-subtle);
+  }
+
+  .dense[data-review-table="datasets"] tr > .coverageCell {
+    grid-row: 1 / span 4;
+  }
+}
+
+/* Restore native compact tables only when every column fits the container. */
+@container (min-width: 1460px) {
+  .dense {
+    display: table;
+    table-layout: fixed;
+  }
+
+  .dense > colgroup {
+    display: table-column-group;
+  }
+
+  .dense > thead {
+    position: static;
+    display: table-header-group;
+    width: auto;
+    height: auto;
+    padding: 0;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+  }
+
+  .dense > tbody {
+    display: table-row-group;
+  }
+
+  .dense > tfoot {
+    display: table-footer-group;
+  }
+
+  .dense > tbody > tr,
+  .dense > tfoot > tr,
+  .dense tr[data-review-row="day"],
+  .dense tr[data-review-row="details"] {
+    display: table-row;
+  }
+
+  .dense tr[hidden] {
+    display: none;
+  }
+
+  .dense tr > th,
+  .dense tr > td,
+  .dense tfoot td:empty {
+    display: table-cell;
+  }
+
+  .dense tr > .coverageCell {
+    border: 0;
+  }
+
+  .dense [data-label]::before {
+    display: none;
+  }
+
+  .dense tr > td,
+  .dense thead th:not(:first-child):not(:last-child) {
+    text-align: right;
+  }
+
+  .dense tr > .coverageCell,
+  .dense[data-review-table="daily"]
+    tr[data-review-row="summary"]
+    > :nth-child(2),
+  .dense[data-review-table="daily"] thead th:nth-child(2) {
+    text-align: left;
+  }
+}
+
+@container (min-width: 900px) {
+  .scale {
+    display: table;
+    table-layout: fixed;
+  }
+
+  .scale > thead {
+    position: static;
+    display: table-header-group;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+  }
+
+  .scale > tbody {
+    display: table-row-group;
+  }
+
+  .scale > tfoot {
+    display: table-footer-group;
+  }
+
+  .scale > tbody > tr,
+  .scale > tfoot > tr {
+    display: table-row;
+  }
+
+  .scale tr > th,
+  .scale tr > td {
+    display: table-cell;
+  }
+
+  .scale tr > .coverageCell {
+    border: 0;
+  }
+
+  .scale [data-label]::before {
+    display: none;
+  }
+}

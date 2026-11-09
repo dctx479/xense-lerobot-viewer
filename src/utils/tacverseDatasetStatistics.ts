@@ -1,3 +1,4 @@
+import { parseCalendarTimestamp } from "@/utils/calendarTime";
 import type {
   TacverseHubCategoryCounts,
   TacverseHubCategorySelection,
@@ -92,9 +93,7 @@ export function summarizeTacverseDatasetStatistics(
 }
 
 function timestamp(value: string | null): number | null {
-  if (!value) return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return value ? parseCalendarTimestamp(value) : null;
 }
 
 export function sortTacverseDatasetStatistics(
