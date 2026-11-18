@@ -7,6 +7,10 @@ import type { VideoInfo } from "@/types";
 import { FirstFrameVideo } from "./first-frame-video";
 import { seekVideoWithFrameGate } from "@/utils/videoFramePresentation";
 import {
+  createCoalescedSeeker,
+  type CoalescedSeeker,
+} from "@/utils/coalescedSeek";
+import {
   episodeTimeFromMediaTime,
   mediaTimeFromEpisodeTime,
   videoSegmentEnd,
@@ -60,6 +64,9 @@ export const SimpleVideosPlayer = ({
   const { seek, setIsPlaying, playingIntentRef } = useTimeControls();
   const { currentTime, externalSeekVersion, isPlaying } = useTimeState();
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
+  // One coalescing seeker per element (see utils/coalescedSeek): external
+  // seeks never interrupt a seek that is still decoding.
+  const seekersRef = useRef<Map<HTMLVideoElement, CoalescedSeeker>>(new Map());
   // Stable ref callbacks per index, so React doesn't detach and re-attach every video on each render.
   const videoRefCallbacksRef = useRef<
     ((el: HTMLVideoElement | null) => void)[]
@@ -516,14 +523,41 @@ export const SimpleVideosPlayer = ({
       const info = videosInfo[index];
       const targetTime = mediaTimeFromEpisodeTime(info, currentTime);
 
-      if (
-        Math.abs(video.currentTime - targetTime) >
-        THRESHOLDS.VIDEO_SYNC_TOLERANCE
-      ) {
-        seekVideoWithFrameGate(video, targetTime);
+      // Slider drags fire a seek per input event. Writing currentTime while
+      // the element is still seeking restarts its decode from the previous
+      // keyframe; with eight 1080p-class streams that never converged and the
+      // tiles froze. Coalesce: one seek in flight per element, newest wins.
+      let seeker = seekersRef.current.get(video);
+      if (!seeker) {
+        seeker = createCoalescedSeeker(
+          video,
+          THRESHOLDS.VIDEO_SYNC_TOLERANCE,
+          (target) => seekVideoWithFrameGate(video, target),
+        );
+        seekersRef.current.set(video, seeker);
       }
+      seeker.request(targetTime);
     });
   }, [externalSeekVersion, currentTime, videosInfo, videosReady, hiddenSet]);
+
+  // Drop seekers for elements that went away (episode / camera changes) and on unmount.
+  useEffect(() => {
+    const seekers = seekersRef.current;
+    const alive = new Set(videoRefs.current.filter(Boolean));
+    seekers.forEach((seeker, video) => {
+      if (!alive.has(video)) {
+        seeker.dispose();
+        seekers.delete(video);
+      }
+    });
+  }, [videosInfo]);
+  useEffect(() => {
+    const seekers = seekersRef.current;
+    return () => {
+      seekers.forEach((seeker) => seeker.dispose());
+      seekers.clear();
+    };
+  }, []);
 
   // The page shell becomes interactive as soon as the episode data commits.
   return (
