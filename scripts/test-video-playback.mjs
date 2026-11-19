@@ -207,6 +207,22 @@ try {
         <div id="root"></div><script>
           window.metrics={seeks:[],loads:0,phases:[],errors:[]};
           window.seekDetails=[];
+          if(new URLSearchParams(location.search).has('delayed')) {
+            // Simulate a covered video's compositor callback being withheld,
+            // with data becoming usable after the initial RAF/media events.
+            const frame=HTMLVideoElement.prototype.requestVideoFrameCallback;
+            if(frame)HTMLVideoElement.prototype.requestVideoFrameCallback=function(){
+              return frame.call(this,()=>{});
+            };
+            const delayed=new WeakSet();
+            document.addEventListener('loadeddata',event=>{
+              const video=event.target;
+              if(!(video instanceof HTMLVideoElement)||delayed.has(video))return;
+              delayed.add(video);
+              Object.defineProperty(video,'readyState',{configurable:true,get:()=>1});
+              setTimeout(()=>delete video.readyState,1000);
+            },true);
+          }
           const proto=HTMLMediaElement.prototype;
           const current=Object.getOwnPropertyDescriptor(proto,'currentTime');
           Object.defineProperty(proto,'currentTime',{configurable:true,
@@ -398,6 +414,23 @@ try {
       label + ": frames visible",
     );
   };
+  if (!process.env.VIDEO_PLAYBACK_STRESS) {
+    const query = "?replay&cameras=8&delayed=1";
+    await call(
+      "Page.navigate",
+      { url: server.url.toString() + query },
+      sessionId,
+    );
+    await until(`window.fixtureId===${JSON.stringify(query)} && ${ready}`);
+    await evaluate(reset);
+    await Bun.sleep(300);
+    await assertUnchanged(
+      "eight delayed cameras recover without compositor callbacks",
+    );
+    console.log(
+      "delayed decoder readiness: all eight frames recovered without a reload",
+    );
+  }
   if (process.env.VIDEO_PLAYBACK_STRESS) {
     await call("Emulation.setCPUThrottlingRate", { rate: 4 }, sessionId);
     await call(

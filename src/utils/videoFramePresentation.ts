@@ -11,6 +11,7 @@ type FrameVideo = HTMLVideoElement & {
 
 const presentations = new WeakMap<HTMLVideoElement, VideoFramePresentation>();
 const FRAME_TOLERANCE_SECONDS = 0.12;
+const FRAME_RECHECK_MS = 250;
 
 /** Gate user/source transitions; playback drift may retain the same episode's frame. */
 export function seekVideoWithFrameGate(
@@ -43,6 +44,7 @@ export class VideoFramePresentation {
   private rafCallback?: number;
   private rafSecondCallback?: number;
   private rafCheckVersion = 0;
+  private frameRecheckTimer?: ReturnType<typeof setTimeout>;
   private disposed = false;
 
   constructor(
@@ -232,6 +234,10 @@ export class VideoFramePresentation {
   private cancelCallbacks(): void {
     this.frameCheckVersion++;
     this.rafCheckVersion++;
+    if (this.frameRecheckTimer !== undefined) {
+      clearTimeout(this.frameRecheckTimer);
+      this.frameRecheckTimer = undefined;
+    }
     const video = this.video as FrameVideo;
     if (this.frameCallback !== undefined) {
       video.cancelVideoFrameCallback?.(this.frameCallback);
@@ -296,6 +302,23 @@ export class VideoFramePresentation {
         )
           return;
         this.tryPresent(generation);
+        // A compositor callback can be delayed for a covered/offscreen video,
+        // and a slow decoder may miss this first RAF pair. Keep checking at
+        // low frequency until a frame is available, without seeking or loading.
+        if (this.pending && this.frameRecheckTimer === undefined) {
+          this.frameRecheckTimer = setTimeout(() => {
+            if (
+              this.disposed ||
+              generation !== this.generation ||
+              this.suspended ||
+              !this.pending
+            )
+              return;
+            this.frameRecheckTimer = undefined;
+            this.seekToTarget();
+            this.scheduleRafCheck(generation);
+          }, FRAME_RECHECK_MS);
+        }
       });
     });
   }

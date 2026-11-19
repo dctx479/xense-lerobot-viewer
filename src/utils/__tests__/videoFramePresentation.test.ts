@@ -128,6 +128,48 @@ function setup() {
 }
 
 describe("video frame presentation", () => {
+  test("recovers when slow decoding misses the first RAF pair and no compositor callback arrives", async () => {
+    const { video, states, presentation, load } = setup();
+    load("/camera.mp4", "dataset-a:episode-3");
+    video.readyState = 1;
+    video.dispatchEvent(new Event("loadedmetadata"));
+    paintTwoFrames();
+    expect(states.at(-1)?.phase).toBe("loading");
+    // No further media event or requestVideoFrameCallback reaches the gate.
+    video.readyState = 2;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    paintTwoFrames();
+    expect(states.at(-1)?.phase).toBe("ready");
+    expect(video.loads).toBe(1);
+    expect(video.seeking).toBe(false);
+    presentation.dispose();
+  });
+
+  test("a fallback retry never reveals the previous source after a switch", async () => {
+    const { states, presentation, load, readyAt } = setup();
+    load("/camera-a.mp4", "dataset-a:episode-3");
+    paintTwoFrames();
+    load("/camera-b.mp4", "dataset-a:episode-4", 12);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    paintTwoFrames();
+    expect(states.at(-1)?.phase).toBe("loading");
+    readyAt(12);
+    paintTwoFrames();
+    expect(states.at(-1)?.phase).toBe("ready");
+    presentation.dispose();
+  });
+
+  test("disposal cancels low-frequency readiness retries", async () => {
+    const { states, presentation, load } = setup();
+    load("/camera.mp4", "dataset-a:episode-3");
+    paintTwoFrames();
+    const count = states.length;
+    presentation.dispose();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    paintTwoFrames();
+    expect(states).toHaveLength(count);
+  });
+
   test("retains the decoded frame during drift recovery but gates an explicit seek", () => {
     const { video, states, presentation, load, readyAt } = setup();
     load("/camera.mp4", "dataset-a:episode-3");
