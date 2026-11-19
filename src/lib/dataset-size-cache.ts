@@ -95,13 +95,12 @@ async function directoryFingerprint(target: string): Promise<string> {
  * `export_subtasks.py` run writes inside `data/chunk-000/`, which moves that
  * directory's mtime and nothing above it. The fingerprint therefore covers the
  * dataset directory, `meta/`, `data/`, `videos/` **and the immediate children
- * of the latter two**, which is where lerobot puts its chunks. That is ~12
- * syscalls against the ~300 an `lstat` of every file costs.
+ * of the latter two**, which is where lerobot puts its chunks. The fingerprint
+ * also includes the size and mtime of their direct files so overwriting an
+ * existing chunk invalidates the cached total.
  *
- * It is a heuristic, and the thing it can miss is a file rewritten in place
- * with no directory change at all. The cost of missing is a stale number in a
- * storage column, not a wrong dataset — so this is the right trade. Deleting
- * the file forces a full recount.
+ * It is still a heuristic: a change deeper than these directories can be
+ * missed. Deleting the cache file forces a full recount.
  */
 export async function datasetSizeFingerprint(
   datasetDir: string,

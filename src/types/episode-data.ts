@@ -85,7 +85,7 @@ export type EpisodeData = {
   task?: string;
   /**
    * Sorted source-frame timestamps from the data parquet, in seconds. Used by
-   * the annotations editor to snap atom timestamps to exact frame times,
+   * the annotations editor to snap atom timestamps to exact frame times —
    * avoiding sub-frame drift from a throttled `currentTime` and keeping
    * events compatible with the writer in lerobot#3471.
    */
@@ -106,7 +106,7 @@ export type AggVelocityStat = {
   hi: number; // normalized by motor range
   motorRange: number;
   inactive?: boolean; // true if p95(|Δa|) < 1% of motor range
-  discrete?: boolean; // true if motor has very few unique values
+  discrete?: boolean; // true if motor has very few unique values (e.g. open/close gripper)
 };
 
 export type AggAutocorrelation = {

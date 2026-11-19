@@ -18,7 +18,7 @@ import { ColladaLoader } from "three/examples/jsm/loaders/ColladaLoader.js";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
-import type { EpisodeData } from "@/app/[org]/[dataset]/[episode]/fetch-data";
+import type { EpisodeData } from "@/types/episode-data";
 import { useDocumentVisible } from "@/hooks/use-document-visible";
 import UrdfPlaybackBar from "@/components/urdf-playback-bar";
 import { ReplayPlaybackDriver } from "@/components/replay-playback-driver";

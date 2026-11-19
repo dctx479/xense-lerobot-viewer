@@ -24,6 +24,11 @@ describe("bucketOf", () => {
 });
 
 describe("dateFromName", () => {
+  test("validates leap days instead of normalizing impossible dates", () => {
+    expect(dateFromName("capture-240229")).toBe("2024-02-29");
+    expect(dateFromName("capture-260229")).toBeNull();
+    expect(dateFromName("capture-260431")).toBeNull();
+  });
   test.each(["261020", "261020b", "1020B"])(
     "reads capture dates with the %s suffix",
     (suffix) => {

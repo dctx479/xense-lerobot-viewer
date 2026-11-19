@@ -25,7 +25,12 @@ function shouldReloadForChunkError(id: string): boolean {
 
   const now = Date.now();
   const href = window.location.href;
-  const raw = window.sessionStorage.getItem(CHUNK_RELOAD_KEY);
+  let raw: string | null;
+  try {
+    raw = window.sessionStorage.getItem(CHUNK_RELOAD_KEY);
+  } catch {
+    return false;
+  }
   if (raw) {
     try {
       const previous = JSON.parse(raw) as {
@@ -34,7 +39,6 @@ function shouldReloadForChunkError(id: string): boolean {
         ts?: number;
       };
       if (
-        previous.id === id &&
         previous.href === href &&
         typeof previous.ts === "number" &&
         now - previous.ts < CHUNK_RELOAD_WINDOW_MS
@@ -46,10 +50,14 @@ function shouldReloadForChunkError(id: string): boolean {
     }
   }
 
-  window.sessionStorage.setItem(
-    CHUNK_RELOAD_KEY,
-    JSON.stringify({ id, href, ts: now }),
-  );
+  try {
+    window.sessionStorage.setItem(
+      CHUNK_RELOAD_KEY,
+      JSON.stringify({ id, href, ts: now }),
+    );
+  } catch {
+    return false;
+  }
   return true;
 }
 
@@ -58,18 +66,13 @@ export function lazyWithChunkRecovery<P>(
   loader: () => Promise<{ default: ComponentType<P> }>,
 ): LazyExoticComponent<ComponentType<P>> {
   return lazy(() =>
-    loader()
-      .then((module) => {
-        if (typeof window !== "undefined") {
-          window.sessionStorage.removeItem(CHUNK_RELOAD_KEY);
-        }
-        return module;
-      })
-      .catch((error: unknown) => {
-        if (reloadOnceForChunkError(id, error)) {
-          return new Promise<never>(() => undefined);
-        }
-        throw error;
-      }),
+    // Retain the page's guard when another component loads successfully;
+    // otherwise a second failing chunk could cause a reload loop.
+    loader().catch((error: unknown) => {
+      if (reloadOnceForChunkError(id, error)) {
+        return new Promise<never>(() => undefined);
+      }
+      throw error;
+    }),
   );
 }

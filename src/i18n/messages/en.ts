@@ -616,6 +616,16 @@ export const en = {
   "player.hide": "Hide video",
   "player.noVideoTag": "Your browser does not support the video tag.",
   "player.decodingVideoFrame": "Decoding frame",
+  "player.loadingVideoFrame": "Loading video",
+  "player.smoothPlayback": "Smooth playback (original quality)",
+  "player.originalPlayback": "Original playback",
+  "player.compatibilityActive": "Smooth playback enabled",
+  "player.compatibilityPreparing": "Cancel preparation ({done}/{total})",
+  "player.compatibilityHelp":
+    "Prepare a lossless playback copy of this episode. First preparation takes time and disk cache; original videos, quality and 3D settings remain unchanged.",
+  "player.compatibilityError": "Preparation failed; retry available",
+  "player.compatibilityUnavailable":
+    "Conversion is unnecessary or unsupported for these videos",
   "player.videoFrameError": "Frame unavailable",
   "player.retryVideo": "Retry video",
 

@@ -76,12 +76,21 @@ export function formatStringWithVars(
 type ParquetFile = ArrayBuffer | AsyncBuffer;
 const parquetMetadataCache = new WeakMap<ParquetFile, Promise<FileMetaData>>();
 
-function importServerOnlyModule<T>(specifier: string): Promise<T> {
-  const runtimeImport = new Function(
-    "specifier",
-    "return import(specifier)",
-  ) as <Module>(specifier: string) => Promise<Module>;
-  return runtimeImport<T>(specifier);
+async function serverLocalFileModules() {
+  if (typeof window !== "undefined") return null;
+  // NEXT_RUNTIME is replaced at build time. Keep filesystem imports inside
+  // this branch so the client bundle never includes Node-only modules. The
+  // undefined case supports callers outside Next, including the test runner.
+  if (
+    process.env.NEXT_RUNTIME === "nodejs" ||
+    process.env.NEXT_RUNTIME === undefined
+  ) {
+    return Promise.all([
+      import("@/lib/local-dataset-paths"),
+      import("node:fs/promises"),
+    ]);
+  }
+  return null;
 }
 
 function readMetadata(file: ParquetFile): Promise<FileMetaData> {
@@ -98,8 +107,8 @@ function readMetadata(file: ParquetFile): Promise<FileMetaData> {
 
 const parquetFileCache = new ParquetBufferCache({
   open: async (url) => {
-    const localFile = await openServerLocalDatasetParquet(url);
-    if (localFile) return localFile;
+    const local = await openServerLocalDatasetParquet(url);
+    if (local) return local;
     const { byteLength } = await asyncBufferFromUrl({
       url,
       requestInit: { cache: "no-store" },
@@ -142,14 +151,9 @@ async function readServerLocalDatasetText(url: string): Promise<string | null> {
   const localFile = parseLocalDatasetFileApiUrl(url);
   if (!localFile) return null;
 
-  const [{ statDatasetFile }, fs] = await Promise.all([
-    importServerOnlyModule<typeof import("@/lib/local-dataset-paths")>(
-      "@/lib/local-dataset-paths",
-    ),
-    importServerOnlyModule<typeof import("node:fs/promises")>(
-      "node:fs/promises",
-    ),
-  ]);
+  const modules = await serverLocalFileModules();
+  if (!modules) return null;
+  const [{ statDatasetFile }, fs] = modules;
   const file = await statDatasetFile(localFile.encodedPath, localFile.filePath);
   if (!file) return null;
   return fs.readFile(file.absolutePath, "utf8");
@@ -163,17 +167,46 @@ async function openServerLocalDatasetParquet(
   const localFile = parseLocalDatasetFileApiUrl(url);
   if (!localFile) return null;
 
-  const [{ statDatasetFile }, { asyncBufferFromFile }] = await Promise.all([
-    importServerOnlyModule<typeof import("@/lib/local-dataset-paths")>(
-      "@/lib/local-dataset-paths",
-    ),
-    importServerOnlyModule<typeof import("hyparquet/src/node.js")>(
-      "hyparquet/src/node.js",
-    ),
-  ]);
+  const modules = await serverLocalFileModules();
+  if (!modules) return null;
+  const [{ statDatasetFile }, fs] = modules;
   const file = await statDatasetFile(localFile.encodedPath, localFile.filePath);
   if (!file) return null;
-  return asyncBufferFromFile(file.absolutePath);
+  return {
+    byteLength: file.size,
+    async slice(start, end = file.size) {
+      // AsyncBuffer follows ArrayBuffer.slice: end is exclusive, and footer
+      // reads may use a negative start. Node streams use an inclusive end.
+      const from = Math.min(
+        file.size,
+        Math.max(0, start < 0 ? file.size + start : start),
+      );
+      const to = Math.min(
+        file.size,
+        Math.max(0, end < 0 ? file.size + end : end),
+      );
+      const bytes = new Uint8Array(Math.max(0, to - from));
+      if (bytes.length === 0) return bytes.buffer;
+      const handle = await fs.open(file.absolutePath, "r");
+      try {
+        let offset = 0;
+        while (offset < bytes.length) {
+          const { bytesRead } = await handle.read(
+            bytes,
+            offset,
+            bytes.length - offset,
+            from + offset,
+          );
+          if (bytesRead === 0)
+            throw new Error("Unexpected end of local Parquet file.");
+          offset += bytesRead;
+        }
+        return bytes.buffer;
+      } finally {
+        await handle.close();
+      }
+    },
+  };
 }
 
 // Read specific columns from the Parquet file

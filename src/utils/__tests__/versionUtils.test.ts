@@ -96,6 +96,11 @@ describe("buildVersionedUrl", () => {
 });
 
 describe("local dataset route helpers", () => {
+  test("rejects malformed percent encoding in a file URL", () => {
+    expect(
+      parseLocalDatasetFileApiUrl("/api/local-datasets/example/meta/%ZZ.json"),
+    ).toBeNull();
+  });
   const originalLocalRoot = process.env.NEXT_PUBLIC_LOCAL_DATASET_ROOT;
   const originalHome = process.env.HOME;
 

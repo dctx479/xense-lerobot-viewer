@@ -97,14 +97,18 @@ export function parseLocalDatasetFileApiUrl(
   const prefix = `${LOCAL_FILE_ROUTE_PREFIX}/`;
   if (!pathname.startsWith(prefix)) return null;
 
-  const segments = pathname
-    .slice(prefix.length)
-    .split("/")
-    .filter(Boolean)
-    .map((segment) => decodeURIComponent(segment));
-  const [encodedPath, ...filePath] = segments;
-  if (!encodedPath || filePath.length === 0) return null;
-  return { encodedPath, filePath };
+  try {
+    const segments = pathname
+      .slice(prefix.length)
+      .split("/")
+      .filter(Boolean)
+      .map((segment) => decodeURIComponent(segment));
+    const [encodedPath, ...filePath] = segments;
+    if (!encodedPath || filePath.length === 0) return null;
+    return { encodedPath, filePath };
+  } catch {
+    return null;
+  }
 }
 
 function trimTrailingSlashes(value: string): string {
