@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { createCoalescedSeeker } from "../coalescedSeek";
 import {
   VideoFramePresentation,
   seekVideoWithFrameGate,
@@ -127,6 +128,29 @@ function setup() {
 }
 
 describe("video frame presentation", () => {
+  test("coalesces slider seeks while keeping the tile covered until the final frame is decoded", () => {
+    const { video, states, presentation, load, readyAt } = setup();
+    load("/camera.mp4", "dataset-a:episode-3");
+    readyAt();
+    video.presentFrame();
+    const seeker = createCoalescedSeeker(video, 0.2, (target) =>
+      seekVideoWithFrameGate(video, target),
+    );
+
+    for (let target = 1; target <= 20; target++) seeker.request(target);
+    expect(video.currentTime).toBe(1);
+    expect(states.at(-1)?.phase).toBe("loading");
+    video.finishSeek();
+    expect(video.currentTime).toBe(20);
+    video.presentFrame();
+    expect(states.at(-1)?.phase).toBe("loading");
+    video.finishSeek();
+    video.presentFrame();
+    expect(states.at(-1)?.phase).toBe("ready");
+    seeker.dispose();
+    presentation.dispose();
+  });
+
   test("keeps a camera covered until a decoded frame matches the requested media time", () => {
     const { video, states, presentation, load, readyAt } = setup();
     load("/camera.mp4", "dataset-a:episode-3", 15);
