@@ -77,6 +77,7 @@ type ParquetFile = ArrayBuffer | AsyncBuffer;
 const parquetMetadataCache = new WeakMap<ParquetFile, Promise<FileMetaData>>();
 
 async function serverLocalFileModules() {
+  if (typeof window !== "undefined") return null;
   // NEXT_RUNTIME is replaced at build time. Keep filesystem imports inside
   // this branch so the client bundle never includes Node-only modules. The
   // undefined case supports callers outside Next, including the test runner.
