@@ -16,9 +16,10 @@ export class ReplayPlaybackClock {
     if (this.lastTime !== undefined && Number.isFinite(now)) {
       const elapsed = (now - this.lastTime) / 1000;
       this.lastTime = now;
-      // A suspended tab or long main-thread stall is not playback time to
-      // catch up in a single jump. Retain the fractional row, not the gap.
-      if (elapsed > 0 && elapsed < 0.5) this.remainder += elapsed;
+      // Media clocks keep advancing through a long Canvas/React task. Losing
+      // that interval makes every camera seek backwards on the next RAF.
+      // The driver pauses separately when the document/view becomes hidden.
+      if (elapsed > 0) this.remainder += elapsed;
     }
     const rows = this.remainder * rowsPerSecond;
     const frames = Math.floor(rows + 1e-9);

@@ -13,7 +13,10 @@ import {
 import { useT } from "@/context/locale-context";
 import type { VideoInfo } from "@/types";
 import { FirstFrameVideo } from "@/components/first-frame-video";
-import { THRESHOLDS } from "@/utils/constants";
+import {
+  REPLAY_VIDEO_SYNC,
+  ReplayVideoSynchronizer,
+} from "@/utils/replayVideoSync";
 import { groupUrdfReplayVideos } from "@/utils/urdfReplayVideos";
 import { mediaTimeFromEpisodeTime } from "@/utils/videoSegments";
 import { seekVideoWithFrameGate } from "@/utils/videoFramePresentation";
@@ -47,6 +50,7 @@ function ReplayVideoTile({
   const targetTimeRef = useRef(targetTime);
   const shouldPlayRef = useRef(active && playing);
   const previousPlayingRef = useRef(playing);
+  const synchronizerRef = useRef(new ReplayVideoSynchronizer());
   const lastSeekRef = useRef<{
     datasetKey: string;
     episodeId: number;
@@ -58,18 +62,36 @@ function ReplayVideoTile({
   const syncToReplay = useCallback((force: boolean) => {
     const element = videoRef.current;
     if (!element || element.readyState < HTMLMediaElement.HAVE_METADATA) return;
-    const tolerance = force ? 1 / 120 : THRESHOLDS.VIDEO_SYNC_TOLERANCE;
-    if (
-      Math.abs(element.currentTime - targetTimeRef.current) > tolerance ||
-      element.seeking
-    ) {
-      seekVideoWithFrameGate(element, targetTimeRef.current);
+    if (force) {
+      synchronizerRef.current.reset();
+      element.playbackRate = 1;
+      if (
+        Math.abs(element.currentTime - targetTimeRef.current) > 1 / 120 ||
+        element.seeking
+      )
+        seekVideoWithFrameGate(element, targetTimeRef.current);
+      return;
     }
+    synchronizerRef.current.correct(
+      element,
+      targetTimeRef.current,
+      performance.now(),
+      (target) =>
+        seekVideoWithFrameGate(element, target, { retainFrame: true }),
+    );
   }, []);
 
   const playFromReplay = useCallback(() => {
     const element = videoRef.current;
     if (!element || !shouldPlayRef.current || !element.paused) return;
+    // A slightly faster camera can end before the timeline wraps. Calling
+    // play() there rewinds it natively, then correction seeks it to the end.
+    if (
+      element.ended &&
+      Math.abs(element.currentTime - targetTimeRef.current) <
+        REPLAY_VIDEO_SYNC.HARD_SEEK_SECONDS
+    )
+      return;
     void element.play().catch((error: unknown) => {
       if (!(error instanceof DOMException) || error.name !== "AbortError") {
         console.warn(`Unable to play 3D Replay video ${video.filename}`);
@@ -78,8 +100,8 @@ function ReplayVideoTile({
   }, [video.filename]);
 
   // Explicit seeks use replayRevision below. During playback the MP4 runs on its
-  // own media clock and is only corrected when it drifts materially, avoiding
-  // eight expensive decoder seeks on every rendered frame.
+  // own media clock. Small drift converges through playbackRate; only a large
+  // offset needs a seek, and never while its decoder is still seeking.
   useEffect(() => {
     const wasPlaying = previousPlayingRef.current;
     previousPlayingRef.current = playing;
@@ -98,6 +120,8 @@ function ReplayVideoTile({
     if (!element) return;
     if (!active || !playing) {
       element.pause();
+      element.playbackRate = 1;
+      synchronizerRef.current.reset();
       return;
     }
     playFromReplay();

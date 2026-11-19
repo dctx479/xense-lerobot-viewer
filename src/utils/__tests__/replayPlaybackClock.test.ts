@@ -40,12 +40,20 @@ describe("replay playback clock", () => {
     expect(clock.pause(2010, 30)).toEqual({ frames: 0, alpha: 0.3 });
   });
 
-  test("a long suspension preserves the fraction without jumping across the gap", () => {
+  test("counts a long main-thread stall because video clocks keep advancing", () => {
     const clock = new ReplayPlaybackClock();
     clock.start(0);
     clock.advance(10, 30);
-    expect(clock.advance(1010, 30).frames).toBe(0);
+    expect(clock.advance(1010, 30).frames).toBe(30);
     expect(clock.pause(1040, 30).frames).toBe(1);
+  });
+
+  test("a paused hidden view excludes the entire inactive gap", () => {
+    const clock = new ReplayPlaybackClock();
+    clock.start(0);
+    clock.pause(10, 30);
+    clock.start(60_010);
+    expect(clock.pause(60_040, 30).frames).toBe(1);
   });
 
   test("ignores invalid timestamps and rates without poisoning future samples", () => {

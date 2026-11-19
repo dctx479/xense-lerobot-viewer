@@ -12,13 +12,14 @@ type FrameVideo = HTMLVideoElement & {
 const presentations = new WeakMap<HTMLVideoElement, VideoFramePresentation>();
 const FRAME_TOLERANCE_SECONDS = 0.12;
 
-/** Hide a tile before a seek and show it again after the target frame is decoded. */
+/** Gate user/source transitions; playback drift may retain the same episode's frame. */
 export function seekVideoWithFrameGate(
   video: HTMLVideoElement,
   targetSeconds: number,
+  options: { retainFrame?: boolean } = {},
 ): void {
   const presentation = presentations.get(video);
-  if (presentation) presentation.seek(targetSeconds);
+  if (presentation) presentation.seek(targetSeconds, options.retainFrame);
   else if (
     video.readyState >= HTMLMediaElement.HAVE_METADATA &&
     Math.abs(video.currentTime - targetSeconds) > 1 / 120
@@ -112,7 +113,7 @@ export class VideoFramePresentation {
     }
   }
 
-  seek(targetSeconds: number): void {
+  seek(targetSeconds: number, retainFrame = false): void {
     if (this.disposed || this.suspended || this.state.phase === "error") return;
     const nextTarget = Number.isFinite(targetSeconds)
       ? Math.max(0, targetSeconds)
@@ -126,7 +127,8 @@ export class VideoFramePresentation {
       // Repeating the same command must not discard the callback that is
       // already waiting to present its frame. No new seeked event is owed
       // when currentTime is already at that pending target.
-      if (!this.pending || targetChanged) this.begin(this.targetSeconds);
+      if (!this.pending || targetChanged)
+        this.begin(this.targetSeconds, retainFrame);
       this.seekToTarget();
       this.scheduleFrameCheck(this.generation);
       this.scheduleRafCheck(this.generation);
@@ -156,14 +158,14 @@ export class VideoFramePresentation {
       presentations.delete(this.video);
   }
 
-  private begin(targetSeconds: number): void {
+  private begin(targetSeconds: number, retainFrame = false): void {
     this.cancelCallbacks();
     this.generation++;
     this.pending = true;
     this.targetSeconds = targetSeconds;
     this.seekTargetSeconds = targetSeconds;
     this.hasPlayedSinceSeek = false;
-    this.emit("loading");
+    if (!retainFrame || this.state.phase !== "ready") this.emit("loading");
   }
 
   private seekToTarget(): void {
@@ -208,7 +210,7 @@ export class VideoFramePresentation {
 
     this.pending = false;
     this.cancelCallbacks();
-    this.emit("ready");
+    if (this.state.phase !== "ready") this.emit("ready");
   }
 
   private scheduleFrameCheck(generation: number): void {
