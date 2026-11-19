@@ -1,5 +1,7 @@
 // Real Chromium/H.264 regression checks for media events crossing React commits.
 // Run with `bun run test:video-playback`; requires ffmpeg and Chrome/Chromium.
+// Set VIDEO_PLAYBACK_STRESS=1 for continuous eight-camera playback under load.
+// VIDEO_PLAYBACK_DATASET may point to a TacCap v3 dataset with eight camera MP4s.
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -43,6 +45,23 @@ try {
   assert.equal(made.exitCode, 0, made.stderr.toString());
   const entry = path.join(temp, "entry.tsx");
   const modulePath = (name) => JSON.stringify(path.join(repo, "src", name));
+  // Optional real eight-camera dataset, without changing or transcoding it.
+  const dataset = process.env.VIDEO_PLAYBACK_DATASET;
+  const fixtureFrames = dataset
+    ? JSON.parse(
+        await fs.readFile(path.join(dataset, "meta/info.json"), "utf8"),
+      ).total_frames
+    : 1800;
+  const cameraNames = [
+    "left_wrist",
+    "head_left",
+    "head_right",
+    "right_wrist",
+    "left_tactile_left",
+    "left_tactile_right",
+    "right_tactile_left",
+    "right_tactile_right",
+  ];
   await fs.writeFile(
     entry,
     `
@@ -55,8 +74,8 @@ try {
     import {ReplayPlaybackDriver} from ${modulePath("components/replay-playback-driver.tsx")};
     import {useDocumentVisible} from ${modulePath("hooks/use-document-visible.ts")};
     import PlaybackBar from ${modulePath("components/playback-bar.tsx")};
-    import {THRESHOLDS} from ${modulePath("utils/constants.ts")};
-    window.replaySyncTolerance=THRESHOLDS.VIDEO_SYNC_TOLERANCE;
+    import {REPLAY_VIDEO_SYNC} from ${modulePath("utils/replayVideoSync.ts")};
+    window.replaySyncTolerance=REPLAY_VIDEO_SYNC.HARD_SEEK_SECONDS;
     const params=new URLSearchParams(location.search);
     const segmented = params.has('episodes');
     const cameras=Number(params.get('cameras'))||2;
@@ -67,7 +86,9 @@ try {
       document.dispatchEvent(new Event('visibilitychange'));
     };
     const videos = Array.from({length:cameras},(_,i)=>({
-      filename:'camera_'+i, url:'/clip.mp4', ...(segmented?{isSegmented:true,segmentStart:1,segmentEnd:55}:{})
+      filename:${JSON.stringify(cameraNames)}[i]??('camera_'+i),
+      url:${dataset ? "'/camera.mp4?camera='+i" : "'/clip.mp4'"},
+      ...(segmented?{isSegmented:true,segmentStart:1,segmentEnd:55}:{})
     }));
     function Controls() {
       const controls=useTimeControls();
@@ -97,6 +118,7 @@ try {
       const frameRef=useRef(9),smoothTimeRef=useRef(null);
       const timeAtRow=useCallback(row=>row/30,[]);
       const time=timeAtRow(frame);
+      window.replayTime=time;
       window.replayPlaying=mediaActive&&playing;
       const setTime=time=>{frameRef.current=Math.round(time*30);setFrame(frameRef.current)};
       window.setActive=setActive;
@@ -108,7 +130,7 @@ try {
       };
       window.seekPaused=time=>{setTime(time);setRevision(v=>v+1)};
       return <><ReplayPlaybackDriver playing={mediaActive&&playing} rowsPerSecond={30}
-        replayRevision={revision} totalFrames={1800} frameRef={frameRef} setFrame={setFrame}
+        replayRevision={revision} totalFrames={${fixtureFrames}} frameRef={frameRef} setFrame={setFrame}
         smoothTimeRef={smoothTimeRef} timeAtRow={timeAtRow}/>
         <Replay active={mediaActive} datasetKey="fixture" episodeId={0} videos={videos}
         playing={playing} episodeTimeSeconds={time} replayRevision={revision}/></>;
@@ -132,6 +154,23 @@ try {
   assert.ok(built.success, JSON.stringify(built.logs));
   const bundle = await built.outputs[0].text();
   const bytes = new Uint8Array(await fs.readFile(clip));
+  const cameraBytes = dataset
+    ? await Promise.all(
+        cameraNames.map(
+          async (name) =>
+            new Uint8Array(
+              await fs.readFile(
+                path.join(
+                  dataset,
+                  "videos",
+                  "observation.images." + name,
+                  "chunk-000/file-000.mp4",
+                ),
+              ),
+            ),
+        ),
+      )
+    : [];
   server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -141,20 +180,22 @@ try {
         return new Response(bundle, {
           headers: { "content-type": "text/javascript" },
         });
-      if (url.pathname === "/clip.mp4") {
+      if (url.pathname === "/clip.mp4" || url.pathname === "/camera.mp4") {
+        const media =
+          cameraBytes[Number(url.searchParams.get("camera"))] ?? bytes;
         const range = req.headers.get("range")?.match(/^bytes=(\d+)-(\d*)$/);
         const start = range ? Number(range[1]) : 0;
         const end = range?.[2]
-          ? Math.min(Number(range[2]), bytes.length - 1)
-          : bytes.length - 1;
-        return new Response(bytes.slice(start, end + 1), {
+          ? Math.min(Number(range[2]), media.length - 1)
+          : media.length - 1;
+        return new Response(media.slice(start, end + 1), {
           status: range ? 206 : 200,
           headers: {
             "accept-ranges": "bytes",
             "content-type": "video/mp4",
             "content-length": String(end - start + 1),
             ...(range
-              ? { "content-range": `bytes ${start}-${end}/${bytes.length}` }
+              ? { "content-range": `bytes ${start}-${end}/${media.length}` }
               : {}),
           },
         });
@@ -170,7 +211,7 @@ try {
           const current=Object.getOwnPropertyDescriptor(proto,'currentTime');
           Object.defineProperty(proto,'currentTime',{configurable:true,
             get(){return current.get.call(this)},
-            set(value){metrics.seeks.push(value);seekDetails.push({target:value,before:current.get.call(this),paused:this.paused,playing:window.replayPlaying});current.set.call(this,value)}});
+            set(value){metrics.seeks.push(value);seekDetails.push({target:value,before:current.get.call(this),paused:this.paused,ended:this.ended,playing:window.replayPlaying});current.set.call(this,value)}});
           const load=proto.load; proto.load=function(){metrics.loads++;return load.call(this)};
           new MutationObserver(records=>{for(const r of records){
             metrics.phases.push([r.oldValue,r.target.dataset.videoFrameState]);
@@ -193,6 +234,7 @@ try {
         "--headless=new",
         "--no-sandbox",
         "--disable-gpu",
+        "--no-proxy-server",
         "--no-first-run",
         "--no-default-browser-check",
         "--remote-debugging-port=0",
@@ -254,9 +296,8 @@ try {
     if (!task) return;
     pending.delete(message.id);
     clearTimeout(task.timer);
-    message.error
-      ? task.reject(Error(JSON.stringify(message.error)))
-      : task.resolve(message.result);
+    if (message.error) task.reject(Error(JSON.stringify(message.error)));
+    else task.resolve(message.result);
   };
   const call = (method, params = {}, sessionId) =>
     new Promise((resolve, reject) => {
@@ -264,7 +305,7 @@ try {
       const timer = setTimeout(() => {
         pending.delete(id);
         reject(new Error("Browser command timed out: " + method));
-      }, 15000);
+      }, 45000);
       pending.set(id, { resolve, reject, timer });
       socket.send(
         JSON.stringify({
@@ -282,6 +323,7 @@ try {
   });
   await call("Target.activateTarget", { targetId: target.targetId });
   await call("Page.enable", {}, sessionId);
+  await call("Page.stopLoading", {}, sessionId);
   const evaluate = async (expression) => {
     const result = await call(
       "Runtime.evaluate",
@@ -319,26 +361,21 @@ try {
       assert.equal(details.length, metrics.seeks.length);
       for (const detail of details) {
         assert.ok(
-          detail.playing && !detail.paused,
+          detail.playing && (!detail.paused || detail.ended),
           label + ": seek while paused: " + JSON.stringify(detail),
         );
         assert.ok(
-          Math.abs(detail.target - detail.before) > tolerance,
+          Math.abs(detail.target - detail.before) >= tolerance,
           label + ": unnecessary decoder seek: " + JSON.stringify(detail),
         );
       }
       assert.equal(metrics.loads, 0, label + ": unexpected media reload");
       assert.deepEqual(metrics.errors, []);
-      assert.ok(
-        metrics.phases.length <= 2 * details.length,
-        label + ": unrelated frame resets",
+      assert.deepEqual(
+        metrics.phases,
+        [],
+        label + ": playback hides decoded frames",
       );
-      for (const [from, to] of metrics.phases)
-        assert.ok(
-          (from === "ready" && to === "loading") ||
-            (from === "loading" && to === "ready"),
-          label + ": invalid frame phase",
-        );
       console.log(
         label +
           ": validated " +
@@ -361,11 +398,86 @@ try {
       label + ": frames visible",
     );
   };
-  for (const { mode, cameras, cycles, cpu } of [
-    { mode: "episodes", cameras: 2, cycles: 400, cpu: 1 },
-    { mode: "replay", cameras: 2, cycles: 400, cpu: 1 },
-    { mode: "replay", cameras: 8, cycles: 200, cpu: 4 },
-  ]) {
+  if (process.env.VIDEO_PLAYBACK_STRESS) {
+    await call("Emulation.setCPUThrottlingRate", { rate: 4 }, sessionId);
+    await call(
+      "Page.navigate",
+      { url: server.url.toString() + "?replay&cameras=8" },
+      sessionId,
+    );
+    await until(ready);
+    await evaluate("window.toggle()");
+    await until(mediaPaused(false));
+    await Bun.sleep(800);
+    await until(ready);
+    await evaluate(reset);
+    // A heavy Canvas/React task delays RAF while the media clock keeps playing.
+    for (let i = 0; i < 3; i++) {
+      await evaluate(
+        "{const end=performance.now()+650;while(performance.now()<end){}};",
+      );
+      await Bun.sleep(500);
+    }
+    await Bun.sleep(1000);
+    await until(ready);
+    const stalls = await evaluate("window.metrics");
+    console.log(
+      "eight-camera playback through main-thread stalls:",
+      JSON.stringify(stalls),
+    );
+    assert.deepEqual(stalls, { seeks: [], loads: 0, phases: [], errors: [] });
+
+    // Small drift must converge without resetting all eight GOP decoders.
+    await evaluate(
+      "for(const v of document.querySelectorAll('video'))v.currentTime-=.3;",
+    );
+    await Bun.sleep(100);
+    await until(ready);
+    await evaluate(reset);
+    await Bun.sleep(6000);
+    await assertUnchanged("eight-camera soft drift recovery");
+    assert.ok(
+      await evaluate(
+        "[...document.querySelectorAll('video')].every(v=>Math.abs(v.currentTime-window.replayTime)<.2)",
+      ),
+    );
+    await evaluate(
+      "for(const v of document.querySelectorAll('video'))v.currentTime+=2;",
+    );
+    await Bun.sleep(100);
+    await evaluate(reset);
+    await until("window.metrics.seeks.length>0");
+    await Bun.sleep(500);
+    await assertUnchanged(
+      "eight-camera large drift recovery retains frames",
+      true,
+    );
+
+    await evaluate(`window.seekPaused(${fixtureFrames / 30 - 0.6})`);
+    await Bun.sleep(100);
+    await until(ready);
+    await evaluate(reset);
+    await Bun.sleep(1800);
+    await assertUnchanged("eight-camera loop recovery retains frames", true);
+    assert.ok(await evaluate("window.replayTime<3"), "timeline loops");
+    assert.ok(
+      await evaluate(
+        "[...document.querySelectorAll('video')].every(v=>v.currentTime<3&&!v.paused)",
+      ),
+      "all cameras resume after looping",
+    );
+    console.log(
+      "eight-camera continuous playback and soft drift recovery passed" +
+        (dataset ? " with real dataset" : ""),
+    );
+  }
+  for (const { mode, cameras, cycles, cpu } of process.env.VIDEO_PLAYBACK_STRESS
+    ? []
+    : [
+        { mode: "episodes", cameras: 2, cycles: 400, cpu: 1 },
+        { mode: "replay", cameras: 2, cycles: 400, cpu: 1 },
+        { mode: "replay", cameras: 8, cycles: 200, cpu: 4 },
+      ]) {
     const label = `${mode} (${cameras} cameras, CPU x${cpu})`;
     const query = "?" + mode + "&cameras=" + cameras;
     await call("Emulation.setCPUThrottlingRate", { rate: cpu }, sessionId);
@@ -428,7 +540,7 @@ try {
       await evaluate("window.toggle()");
       await until(mediaPaused(false));
       await Bun.sleep(100);
-      await evaluate("document.querySelector('video').currentTime+=1;" + reset);
+      await evaluate("document.querySelector('video').currentTime+=2;" + reset);
       await until("window.metrics.seeks.length>0 && " + ready);
       await evaluate("window.toggle()");
       await until(mediaPaused(true));

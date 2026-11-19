@@ -33,6 +33,8 @@ export function FirstFrameVideo({
   const t = useT();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const presentationRef = useRef<VideoFramePresentation | null>(null);
+  const targetRef = useRef(targetSeconds);
+  targetRef.current = targetSeconds;
   const [state, setState] = useState(INITIAL_STATE);
   const setVideoRef = useCallback(
     (element: HTMLVideoElement | null) => {
@@ -58,10 +60,12 @@ export function FirstFrameVideo({
     presentationRef.current?.update(
       video.url,
       frameKey,
-      targetSeconds,
+      targetRef.current,
       suspended,
     );
-  }, [frameKey, suspended, targetSeconds, video.url]);
+    // Playback samples are observations, not seek commands. Decoder commands
+    // go through seekVideoWithFrameGate; source changes use the latest target.
+  }, [frameKey, suspended, video.url]);
 
   return (
     <div

@@ -128,6 +128,38 @@ function setup() {
 }
 
 describe("video frame presentation", () => {
+  test("retains the decoded frame during drift recovery but gates an explicit seek", () => {
+    const { video, states, presentation, load, readyAt } = setup();
+    load("/camera.mp4", "dataset-a:episode-3");
+    readyAt();
+    video.presentFrame();
+    const count = states.length;
+    seekVideoWithFrameGate(video, 2, { retainFrame: true });
+    expect(video.seeking).toBe(true);
+    expect(states).toHaveLength(count);
+    video.finishSeek();
+    video.presentFrame();
+    expect(states).toHaveLength(count);
+    seekVideoWithFrameGate(video, 4);
+    expect(states.at(-1)?.phase).toBe("loading");
+    presentation.dispose();
+  });
+
+  test("drift recovery never reveals a frame from a previous episode", () => {
+    const { video, states, presentation, load, readyAt } = setup();
+    load("/camera.mp4", "dataset-a:episode-3");
+    readyAt();
+    video.presentFrame();
+    load("/camera.mp4", "dataset-a:episode-4", 20);
+    seekVideoWithFrameGate(video, 21, { retainFrame: true });
+    expect(states.at(-1)?.phase).toBe("loading");
+    video.finishSeek();
+    video.finishSeek();
+    video.presentFrame();
+    expect(states.at(-1)?.phase).toBe("ready");
+    presentation.dispose();
+  });
+
   test("coalesces slider seeks while keeping the tile covered until the final frame is decoded", () => {
     const { video, states, presentation, load, readyAt } = setup();
     load("/camera.mp4", "dataset-a:episode-3");
