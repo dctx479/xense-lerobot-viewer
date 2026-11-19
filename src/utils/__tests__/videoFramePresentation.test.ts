@@ -128,6 +128,47 @@ function setup() {
 }
 
 describe("video frame presentation", () => {
+  test("distinguishes file reading from decoding and shows a new source's first loaded frame without extra RAFs", () => {
+    const { video, states, presentation, load } = setup();
+    load("/camera.mp4", "dataset-a:episode-0");
+    expect(states.at(-1)).toEqual({ phase: "loading", stage: "fetching" });
+    video.readyState = 1;
+    video.dispatchEvent(new Event("loadedmetadata"));
+    expect(states.at(-1)).toEqual({ phase: "loading", stage: "decoding" });
+    video.readyState = 2;
+    video.dispatchEvent(new Event("loadeddata"));
+    expect(states.at(-1)?.phase).toBe("ready");
+    expect(video.playbacks.size).toBe(0);
+    expect(video.loads).toBe(1);
+    presentation.dispose();
+  });
+
+  test("first-data events never reveal a mismatched episode segment", () => {
+    const { video, states, presentation, load } = setup();
+    load("/camera.mp4", "dataset-a:episode-1", 12);
+    video.readyState = 2;
+    video.dispatchEvent(new Event("loadeddata"));
+    expect(states.at(-1)?.phase).toBe("loading");
+    expect(video.seeking).toBe(true);
+    video.finishSeek();
+    video.presentFrame();
+    expect(states.at(-1)?.phase).toBe("ready");
+    presentation.dispose();
+  });
+
+  test("an explicit return to zero still validates its requested frame", () => {
+    const { video, states, presentation, load, readyAt } = setup();
+    load("/camera.mp4", "dataset-a:episode-0", 12);
+    readyAt(12);
+    video.presentFrame();
+    seekVideoWithFrameGate(video, 0);
+    video.finishSeek();
+    video.dispatchEvent(new Event("loadeddata"));
+    expect(states.at(-1)?.phase).toBe("loading");
+    video.presentFrame();
+    expect(states.at(-1)?.phase).toBe("ready");
+    presentation.dispose();
+  });
   test("recovers when slow decoding misses the first RAF pair and no compositor callback arrives", async () => {
     const { video, states, presentation, load } = setup();
     load("/camera.mp4", "dataset-a:episode-3");

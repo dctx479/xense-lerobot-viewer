@@ -6,10 +6,21 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import postcss from "postcss";
+import tailwind from "@tailwindcss/postcss";
+import { NextRequest } from "next/server";
+import {
+  GET as serveDatasetFile,
+  HEAD as prepareDatasetFile,
+} from "../src/app/api/local-datasets/[encodedPath]/[...filePath]/route.ts";
+import { encodeLocalDatasetPath } from "../src/utils/datasetRoute.ts";
+import { DELETE as releasePlaybackLease } from "../src/app/api/video-playback-cache/[key]/route.ts";
 
 const repo = fileURLToPath(new URL("../", import.meta.url));
 const temp = await fs.mkdtemp(path.join(repo, ".tmp-playback-test-"));
 let browser, server, socket;
+const originalCacheDir = process.env.XENSE_VIDEO_CACHE_DIR;
+process.env.XENSE_VIDEO_CACHE_DIR = path.join(temp, "playback-cache");
 try {
   const chrome =
     process.env.CHROME_BIN ||
@@ -37,12 +48,39 @@ try {
     "yuv420p",
     "-g",
     "30",
-    "-movflags",
-    "+faststart",
     "-y",
     clip,
   ]);
   assert.equal(made.exitCode, 0, made.stderr.toString());
+  const hevc = path.join(temp, "compat.mp4");
+  const hasHevc =
+    !process.env.VIDEO_PLAYBACK_DATASET &&
+    !process.env.VIDEO_PLAYBACK_STRESS &&
+    Bun.spawnSync(["ffmpeg", "-hide_banner", "-encoders"])
+      .stdout.toString()
+      .includes("libx265");
+  if (hasHevc) {
+    const madeHevc = Bun.spawnSync([
+      "ffmpeg",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      clip,
+      "-an",
+      "-c:v",
+      "libx265",
+      "-preset",
+      "ultrafast",
+      "-x265-params",
+      "pools=1:frame-threads=1:log-level=error",
+      "-pix_fmt",
+      "yuv420p",
+      "-y",
+      hevc,
+    ]);
+    assert.equal(madeHevc.exitCode, 0, madeHevc.stderr.toString());
+  }
   const entry = path.join(temp, "entry.tsx");
   const modulePath = (name) => JSON.stringify(path.join(repo, "src", name));
   // Optional real eight-camera dataset, without changing or transcoding it.
@@ -62,6 +100,15 @@ try {
     "right_tactile_left",
     "right_tactile_right",
   ];
+  const fixtureUrls = cameraNames.map((name) =>
+    dataset
+      ? "/api/local-datasets/" +
+        encodeLocalDatasetPath(dataset) +
+        "/videos/observation.images." +
+        name +
+        "/chunk-000/file-000.mp4"
+      : "/api/local-datasets/" + encodeLocalDatasetPath(temp) + "/clip.mp4",
+  );
   await fs.writeFile(
     entry,
     `
@@ -87,7 +134,7 @@ try {
     };
     const videos = Array.from({length:cameras},(_,i)=>({
       filename:${JSON.stringify(cameraNames)}[i]??('camera_'+i),
-      url:${dataset ? "'/camera.mp4?camera='+i" : "'/clip.mp4'"},
+      url:(params.has('hevc')?${JSON.stringify("/api/local-datasets/" + encodeLocalDatasetPath(temp) + "/compat.mp4")}:${JSON.stringify(fixtureUrls)}[i % 8])+(params.has('prepare-delay')?'?prepare_delay=1':''),
       ...(segmented?{isSegmented:true,segmentStart:1,segmentEnd:55}:{})
     }));
     function Controls() {
@@ -108,6 +155,21 @@ try {
       window.seekPaused=time=>controls.seek(time);
       return null;
     }
+    function EpisodesFixture() {
+      const [episode,setEpisode]=useState(0);
+      const [mediaVideos,setMediaVideos]=useState(videos);
+      window.changeEpisode=time=>{
+        setEpisode(v=>v+1);
+        setMediaVideos(previous=>previous.map(video=>({...video,segmentStart:time})));
+      };
+      window.changeSource=time=>setMediaVideos(previous=>previous.map(video=>({...video,
+        segmentStart:time,url:video.url+(video.url.includes('?')?'&':'?')+'source=next'
+      })));
+      return <TimeProvider duration={54} resetKey={episode}><Controls/>
+        <SimpleVideosPlayer datasetKey="fixture" episodeId={episode} videosInfo={mediaVideos}/>
+        <PlaybackBar/>
+      </TimeProvider>;
+    }
     function ReplayFixture() {
       const [active,setActive]=useState(true);
       const documentVisible=useDocumentVisible();
@@ -115,6 +177,8 @@ try {
       const [playing,setPlaying]=useState(false);
       const [frame,setFrame]=useState(9);
       const [revision,setRevision]=useState(0);
+      const [episode,setEpisode]=useState(0);
+      const [mediaVideos,setMediaVideos]=useState(videos);
       const frameRef=useRef(9),smoothTimeRef=useRef(null);
       const timeAtRow=useCallback(row=>row/30,[]);
       const time=timeAtRow(frame);
@@ -129,18 +193,22 @@ try {
         setTimeout(()=>setTime(Math.max(0,document.querySelector('video').currentTime-.45)),35);
       };
       window.seekPaused=time=>{setTime(time);setRevision(v=>v+1)};
+      window.changeEpisode=time=>{setTime(time);setEpisode(v=>v+1)};
+      window.changeSource=time=>{
+        setTime(time);
+        setMediaVideos(previous=>previous.map(video=>({...video,
+          url:video.url+(video.url.includes('?')?'&':'?')+'source=next'
+        })));
+      };
       return <><ReplayPlaybackDriver playing={mediaActive&&playing} rowsPerSecond={30}
         replayRevision={revision} totalFrames={${fixtureFrames}} frameRef={frameRef} setFrame={setFrame}
         smoothTimeRef={smoothTimeRef} timeAtRow={timeAtRow}/>
-        <Replay active={mediaActive} datasetKey="fixture" episodeId={0} videos={videos}
+        <Replay active={mediaActive} datasetKey="fixture" episodeId={episode} videos={mediaVideos}
         playing={playing} episodeTimeSeconds={time} replayRevision={revision}/></>;
     }
     createRoot(document.getElementById('root')!).render(
       <React.StrictMode><LocaleProvider initialLocale="en">{segmented?
-        <TimeProvider duration={54} resetKey="fixture"><Controls/>
-          <SimpleVideosPlayer datasetKey="fixture" episodeId={0} videosInfo={videos}/>
-          <PlaybackBar/>
-        </TimeProvider>:<ReplayFixture/>}
+        <EpisodesFixture/>:<ReplayFixture/>}
       </LocaleProvider></React.StrictMode>
     );
   `,
@@ -153,57 +221,55 @@ try {
   });
   assert.ok(built.success, JSON.stringify(built.logs));
   const bundle = await built.outputs[0].text();
-  const bytes = new Uint8Array(await fs.readFile(clip));
-  const cameraBytes = dataset
-    ? await Promise.all(
-        cameraNames.map(
-          async (name) =>
-            new Uint8Array(
-              await fs.readFile(
-                path.join(
-                  dataset,
-                  "videos",
-                  "observation.images." + name,
-                  "chunk-000/file-000.mp4",
-                ),
-              ),
-            ),
-        ),
-      )
-    : [];
+  // Use the components' real utilities so viewport regressions are checked
+  // against the same sizing rules as the application, not fixture CSS.
+  const { css } = await postcss([tailwind()]).process(
+    `@import "tailwindcss" source(none);
+     @source "../src/components/simple-videos-player.tsx";
+     @source "../src/components/first-frame-video.tsx";
+     @source "../src/components/playback-bar.tsx";`,
+    { from: path.join(temp, "styles.css") },
+  );
   server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
-    fetch(req) {
+    idleTimeout: 60,
+    async fetch(req) {
       const url = new URL(req.url);
       if (url.pathname === "/app.js")
         return new Response(bundle, {
           headers: { "content-type": "text/javascript" },
         });
-      if (url.pathname === "/clip.mp4" || url.pathname === "/camera.mp4") {
-        const media =
-          cameraBytes[Number(url.searchParams.get("camera"))] ?? bytes;
-        const range = req.headers.get("range")?.match(/^bytes=(\d+)-(\d*)$/);
-        const start = range ? Number(range[1]) : 0;
-        const end = range?.[2]
-          ? Math.min(Number(range[2]), media.length - 1)
-          : media.length - 1;
-        return new Response(media.slice(start, end + 1), {
-          status: range ? 206 : 200,
-          headers: {
-            "accept-ranges": "bytes",
-            "content-type": "video/mp4",
-            "content-length": String(end - start + 1),
-            ...(range
-              ? { "content-range": `bytes ${start}-${end}/${media.length}` }
-              : {}),
-          },
+      if (url.pathname === "/styles.css")
+        return new Response(css, {
+          headers: { "content-type": "text/css" },
         });
+      if (url.pathname.startsWith("/api/video-playback-cache/")) {
+        return releasePlaybackLease(new NextRequest(req), {
+          params: Promise.resolve({ key: url.pathname.split("/").at(-1) }),
+        });
+      }
+      if (url.pathname.startsWith("/api/local-datasets/")) {
+        if (req.method === "HEAD" && url.searchParams.has("prepare_delay"))
+          await Bun.sleep(500);
+        const segments = url.pathname
+          .slice("/api/local-datasets/".length)
+          .split("/")
+          .map(decodeURIComponent);
+        return (req.method === "HEAD" ? prepareDatasetFile : serveDatasetFile)(
+          new NextRequest(req),
+          {
+            params: Promise.resolve({
+              encodedPath: segments[0],
+              filePath: segments.slice(1),
+            }),
+          },
+        );
       }
       return new Response(
         `<!doctype html><meta charset="utf-8">
-        <style>body{background:#172033}.visible{visibility:visible}.invisible{visibility:hidden}
-          video{width:240px;height:180px} [data-video-frame-state]{position:relative}</style>
+        <link rel="stylesheet" href="/styles.css">
+        <style>body{background:#172033}</style>
         <div id="root"></div><script>
           window.metrics={seeks:[],loads:0,phases:[],errors:[]};
           window.seekDetails=[];
@@ -351,7 +417,9 @@ try {
     return result.result.value;
   };
   const until = async (expression) => {
-    for (let i = 0; i < 240; i++) {
+    // Large real MP4s need more startup/seek time than the small fixture.
+    const deadline = performance.now() + (dataset ? 30_000 : 6_000);
+    while (performance.now() < deadline) {
       if (await evaluate(expression)) return;
       await Bun.sleep(25);
     }
@@ -359,7 +427,15 @@ try {
       "Timeout: " +
         expression +
         " " +
-        JSON.stringify(await evaluate("window.metrics")),
+        JSON.stringify(
+          await evaluate(`({compatibility:document.querySelector("[data-video-compatibility]")?.parentElement.innerText,sources:[...document.querySelectorAll("video")].map(v=>v.src),metrics:window.metrics,
+            media:[...document.querySelectorAll('video')].map(v=>({
+              name:v.getAttribute('aria-label'),readyState:v.readyState,
+              networkState:v.networkState,time:v.currentTime,seeking:v.seeking,
+              paused:v.paused,phase:v.parentElement.dataset.videoFrameState,
+              error:v.error&&{code:v.error.code,message:v.error.message}
+            }))})`),
+        ),
     );
   };
   const reset =
@@ -414,6 +490,135 @@ try {
       label + ": frames visible",
     );
   };
+  const checkExpansion = async () => {
+    await evaluate(
+      `window.expansionNodes=[...document.querySelectorAll('video')];
+      window.expansionOverflow=document.body.style.overflow;` + reset,
+    );
+    const open = `document.querySelector('button[title="Enlarge"]').focus();
+      document.querySelector('button[title="Enlarge"]').click();`;
+    await evaluate(open);
+    await until("!!document.querySelector('[role=dialog]')");
+    for (const [width, height] of [
+      [2560, 1100],
+      [1280, 720],
+      [640, 360],
+    ]) {
+      await call(
+        "Emulation.setDeviceMetricsOverride",
+        { width, height, deviceScaleFactor: 1, mobile: false },
+        sessionId,
+      );
+      await until(`(() => {
+        const dialog=document.querySelector('[role=dialog]');
+        const control=dialog.querySelector('button[title="Minimize"]');
+        const video=dialog.querySelector('video');
+        return [control,video].every(el=>{
+          const r=el.getBoundingClientRect();
+          return r.width>0&&r.height>0&&r.top>=0&&r.left>=0
+            &&r.bottom<=innerHeight&&r.right<=innerWidth;
+        }) && control.contains(document.elementFromPoint(
+          control.getBoundingClientRect().x+control.offsetWidth/2,
+          control.getBoundingClientRect().y+control.offsetHeight/2));
+      })()`);
+    }
+    assert.equal(
+      await evaluate(`document.activeElement===document.querySelector('[role=dialog] button[title="Minimize"]')
+        && document.body.style.overflow==='hidden'`),
+      true,
+      "enlargement focuses the restore control and locks background scrolling",
+    );
+    await evaluate(
+      `document.querySelector('[role=dialog] button[title="Minimize"]').click()`,
+    );
+    await until("!document.querySelector('[role=dialog]')");
+    await evaluate(open);
+    await until("!!document.querySelector('[role=dialog]')");
+    await call(
+      "Input.dispatchKeyEvent",
+      {
+        type: "keyDown",
+        key: "Escape",
+        code: "Escape",
+        windowsVirtualKeyCode: 27,
+      },
+      sessionId,
+    );
+    await until("!document.querySelector('[role=dialog]')");
+    assert.equal(
+      await evaluate(`document.body.style.overflow===window.expansionOverflow
+        && [...document.querySelectorAll('video')].every((v,i)=>v===window.expansionNodes[i])
+        && document.activeElement===document.querySelector('button[title="Enlarge"]')`),
+      true,
+      "button and Escape restore the original nodes, focus and scroll state",
+    );
+    await assertUnchanged("video enlargement retains the media decoder");
+  };
+  if (hasHevc) {
+    const delayed = "?replay&cameras=8&prepare-delay=1";
+    await call(
+      "Page.navigate",
+      { url: server.url.toString() + delayed },
+      sessionId,
+    );
+    await until(`window.fixtureId===${JSON.stringify(delayed)} && ${ready}`);
+    await evaluate(
+      `window.compatNodes=[...document.querySelectorAll('video')];window.compatSources=compatNodes.map(v=>v.src);document.querySelector('[data-video-compatibility=original]').click()`,
+    );
+    await until(
+      `!!document.querySelector('[data-video-compatibility=preparing]')`,
+    );
+    assert.equal(
+      await evaluate(
+        `[...document.querySelectorAll('video')].every((v,i)=>v===compatNodes[i]&&v.src===compatSources[i])&&document.querySelectorAll('[data-video-frame-state=ready]').length===8`,
+      ),
+      true,
+      "first frames remain visible while preparing",
+    );
+    await evaluate(
+      `document.querySelector('[data-video-compatibility=preparing]').click()`,
+    );
+    await until(
+      `!!document.querySelector('[data-video-compatibility=original]')`,
+    );
+    await Bun.sleep(600);
+    assert.equal(
+      await evaluate(
+        `[...document.querySelectorAll('video')].every((v,i)=>v.src===compatSources[i])`,
+      ),
+      true,
+      "cancelled preparation retains original sources",
+    );
+    const query = "?episodes&cameras=8&hevc=1";
+    await call(
+      "Page.navigate",
+      { url: server.url.toString() + query },
+      sessionId,
+    );
+    await until(
+      `window.fixtureId===${JSON.stringify(query)} && !!document.querySelector('[data-video-compatibility=original]')`,
+    );
+    await evaluate(
+      `window.compatNodes=[...document.querySelectorAll('video')];document.querySelector('[data-video-compatibility=original]').click()`,
+    );
+    await until(
+      `!!document.querySelector('[data-video-compatibility=compatible]') && ${ready}`,
+    );
+    assert.equal(
+      await evaluate(
+        `[...document.querySelectorAll('video')].every((v,i)=>v===compatNodes[i]&&new URL(v.src).searchParams.get('compat')==='lossless-h264')`,
+      ),
+      true,
+      "all compatible sources switch without replacing media nodes",
+    );
+    await evaluate(`window.seekPaused(2.5)`);
+    await until(
+      `${ready}&&[...document.querySelectorAll('video')].every(v=>Math.abs(v.currentTime-2.5)<0.15)`,
+    );
+    console.log(
+      "HEVC compatibility: retained first frames, cancellation, all-camera source switch and episode-local seek passed",
+    );
+  }
   if (!process.env.VIDEO_PLAYBACK_STRESS) {
     const query = "?replay&cameras=8&delayed=1";
     await call(
@@ -607,6 +812,24 @@ try {
       );
       await evaluate(reset);
     }
+    // Both memoized players must read the latest target on source/episode
+    // changes, including v3 episodes retaining the same MP4.
+    await evaluate("window.changeEpisode(1.6)");
+    await until(
+      `${ready} && [...document.querySelectorAll('video')].every(v=>!v.seeking&&Math.abs(v.currentTime-1.6)<.05)`,
+    );
+    const episodeMetrics = await evaluate("window.metrics");
+    assert.equal(episodeMetrics.loads, 0, "episode retains its MP4");
+    assert.deepEqual(episodeMetrics.errors, []);
+    await evaluate(reset);
+    await evaluate("window.changeSource(3.2)");
+    await until(
+      `${ready} && [...document.querySelectorAll('video')].every(v=>!v.seeking&&Math.abs(v.currentTime-3.2)<.05)`,
+    );
+    const sourceMetrics = await evaluate("window.metrics");
+    assert.equal(sourceMetrics.loads, cameras, "load each new source once");
+    assert.deepEqual(sourceMetrics.errors, []);
+    await evaluate(reset);
     for (let i = 0; i < 40; i++) {
       await evaluate("window.setDocumentVisible(false)");
       await Bun.sleep(8);
@@ -614,12 +837,14 @@ try {
       await Bun.sleep(8);
     }
     await assertUnchanged(label + " browser visibility changes");
+    if (mode === "episodes") await checkExpansion();
     await evaluate(
       mode === "episodes"
         ? "document.querySelector('button[title^=Play]').click()"
         : "window.toggle()",
     );
     await until(mediaPaused(false));
+    if (mode === "episodes") await checkExpansion();
     for (let i = 0; i < 20; i++) {
       await evaluate("window.setDocumentVisible(false)");
       await until(mediaPaused(true));
@@ -682,4 +907,6 @@ try {
     await browser.exited;
   }
   await fs.rm(temp, { recursive: true, force: true });
+  if (originalCacheDir === undefined) delete process.env.XENSE_VIDEO_CACHE_DIR;
+  else process.env.XENSE_VIDEO_CACHE_DIR = originalCacheDir;
 }

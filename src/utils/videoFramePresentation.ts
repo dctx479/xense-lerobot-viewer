@@ -1,5 +1,6 @@
 export type VideoFrameState = {
   phase: "loading" | "ready" | "error";
+  stage?: "fetching" | "decoding";
 };
 
 type FrameVideo = HTMLVideoElement & {
@@ -38,7 +39,7 @@ export class VideoFramePresentation {
   private generation = 0;
   private suspended = false;
   private pending = true;
-  private state: VideoFrameState = { phase: "loading" };
+  private state: VideoFrameState = { phase: "loading", stage: "fetching" };
   private frameCallback?: number;
   private frameCheckVersion = 0;
   private rafCallback?: number;
@@ -46,6 +47,7 @@ export class VideoFramePresentation {
   private rafCheckVersion = 0;
   private frameRecheckTimer?: ReturnType<typeof setTimeout>;
   private disposed = false;
+  private awaitingSourceData = false;
 
   constructor(
     private video: HTMLVideoElement,
@@ -54,6 +56,7 @@ export class VideoFramePresentation {
     presentations.set(video, this);
     video.addEventListener("loadedmetadata", this.onMediaChange);
     video.addEventListener("loadeddata", this.onMediaChange);
+    video.addEventListener("loadeddata", this.onFirstData);
     video.addEventListener("canplay", this.onMediaChange);
     video.addEventListener("seeking", this.onMediaChange);
     video.addEventListener("seeked", this.onMediaChange);
@@ -83,7 +86,7 @@ export class VideoFramePresentation {
 
     this.suspended = false;
     if (sourceChanged) {
-      this.begin(nextTarget);
+      this.begin(nextTarget, false, "fetching");
       this.source = source;
       this.identity = identity;
       const absoluteSource = this.resolveSource(source);
@@ -96,6 +99,7 @@ export class VideoFramePresentation {
       // can continue the same media load without a second initialization.
       this.video.preload = "auto";
       if (this.video.src !== absoluteSource) {
+        this.awaitingSourceData = true;
         this.video.src = source;
         this.video.load();
       }
@@ -117,6 +121,7 @@ export class VideoFramePresentation {
 
   seek(targetSeconds: number, retainFrame = false): void {
     if (this.disposed || this.suspended || this.state.phase === "error") return;
+    this.awaitingSourceData = false;
     const nextTarget = Number.isFinite(targetSeconds)
       ? Math.max(0, targetSeconds)
       : 0;
@@ -139,7 +144,8 @@ export class VideoFramePresentation {
 
   retry(): void {
     if (this.disposed || !this.source) return;
-    this.begin(this.targetSeconds);
+    this.begin(this.targetSeconds, false, "fetching");
+    this.awaitingSourceData = true;
     this.video.load();
     this.seekToTarget();
   }
@@ -151,6 +157,7 @@ export class VideoFramePresentation {
     this.cancelCallbacks();
     this.video.removeEventListener("loadedmetadata", this.onMediaChange);
     this.video.removeEventListener("loadeddata", this.onMediaChange);
+    this.video.removeEventListener("loadeddata", this.onFirstData);
     this.video.removeEventListener("canplay", this.onMediaChange);
     this.video.removeEventListener("seeking", this.onMediaChange);
     this.video.removeEventListener("seeked", this.onMediaChange);
@@ -160,14 +167,19 @@ export class VideoFramePresentation {
       presentations.delete(this.video);
   }
 
-  private begin(targetSeconds: number, retainFrame = false): void {
+  private begin(
+    targetSeconds: number,
+    retainFrame = false,
+    stage: "fetching" | "decoding" = "decoding",
+  ): void {
     this.cancelCallbacks();
     this.generation++;
     this.pending = true;
     this.targetSeconds = targetSeconds;
     this.seekTargetSeconds = targetSeconds;
     this.hasPlayedSinceSeek = false;
-    if (!retainFrame || this.state.phase !== "ready") this.emit("loading");
+    if (!retainFrame || this.state.phase !== "ready")
+      this.emit("loading", stage);
   }
 
   private seekToTarget(): void {
@@ -253,8 +265,11 @@ export class VideoFramePresentation {
     }
   }
 
-  private emit(phase: VideoFrameState["phase"]): void {
-    this.state = { phase };
+  private emit(
+    phase: VideoFrameState["phase"],
+    stage?: VideoFrameState["stage"],
+  ): void {
+    this.state = { phase, ...(stage ? { stage } : {}) };
     this.onState(this.state);
   }
 
@@ -267,10 +282,22 @@ export class VideoFramePresentation {
       this.pending &&
       this.video.readyState >= HTMLMediaElement.HAVE_METADATA
     ) {
+      if (this.state.phase === "loading" && this.state.stage === "fetching")
+        this.emit("loading", "decoding");
       this.seekToTarget();
       this.scheduleFrameCheck(this.generation);
       this.scheduleRafCheck(this.generation);
     }
+  };
+
+  private onFirstData = (): void => {
+    // loadeddata confirms the new source's first decoded frame. Do not wait
+    // for two animation frames when scene initialization occupies the UI thread.
+    // Explicit seeks still wait for their compositor callback/RAF validation.
+    if (!this.awaitingSourceData) return;
+    this.awaitingSourceData = false;
+    if (this.video.currentTime === 0 && this.targetSeconds === 0)
+      this.tryPresent(this.generation);
   };
 
   private scheduleRafCheck(generation: number): void {

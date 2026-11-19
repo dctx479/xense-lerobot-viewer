@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -9,6 +10,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { useT } from "@/context/locale-context";
 import type { VideoInfo } from "@/types";
@@ -20,6 +22,23 @@ import {
 import { groupUrdfReplayVideos } from "@/utils/urdfReplayVideos";
 import { mediaTimeFromEpisodeTime } from "@/utils/videoSegments";
 import { seekVideoWithFrameGate } from "@/utils/videoFramePresentation";
+import { useVideoCompatibility } from "@/hooks/use-video-compatibility";
+import { VideoCompatibilityControl } from "./video-compatibility-control";
+
+type ReplayVideoClock = {
+  time: RefObject<number>;
+  subscribe: (callback: () => void) => () => void;
+};
+
+type UrdfVideoOverlayProps = {
+  active: boolean;
+  datasetKey: string;
+  episodeId: number;
+  episodeTimeSeconds: number;
+  playing: boolean;
+  replayRevision: number;
+  videos: VideoInfo[];
+};
 
 function fallbackLabel(filename: string): string {
   const tail = filename.split(/[./]/).at(-1) ?? filename;
@@ -29,7 +48,7 @@ function fallbackLabel(filename: string): string {
 function ReplayVideoTile({
   active,
   compact = false,
-  episodeTimeSeconds,
+  episodeClock,
   playing,
   replayRevision,
   datasetKey,
@@ -38,7 +57,7 @@ function ReplayVideoTile({
 }: {
   active: boolean;
   compact?: boolean;
-  episodeTimeSeconds: number;
+  episodeClock: ReplayVideoClock;
   playing: boolean;
   replayRevision: number;
   datasetKey: string;
@@ -46,8 +65,16 @@ function ReplayVideoTile({
   video: VideoInfo;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const targetTime = mediaTimeFromEpisodeTime(video, episodeTimeSeconds);
-  const targetTimeRef = useRef(targetTime);
+  // Source/episode changes need the current target before layout effects run,
+  // even when this tile skips every playback-clock render.
+  const targetTimeRef = useMemo(
+    () => ({
+      get current() {
+        return mediaTimeFromEpisodeTime(video, episodeClock.time.current);
+      },
+    }),
+    [episodeClock, video],
+  );
   const shouldPlayRef = useRef(active && playing);
   const previousPlayingRef = useRef(playing);
   const synchronizerRef = useRef(new ReplayVideoSynchronizer());
@@ -56,30 +83,33 @@ function ReplayVideoTile({
     episodeId: number;
     revision: number;
   } | null>(null);
-  targetTimeRef.current = targetTime;
   shouldPlayRef.current = active && playing;
 
-  const syncToReplay = useCallback((force: boolean) => {
-    const element = videoRef.current;
-    if (!element || element.readyState < HTMLMediaElement.HAVE_METADATA) return;
-    if (force) {
-      synchronizerRef.current.reset();
-      element.playbackRate = 1;
-      if (
-        Math.abs(element.currentTime - targetTimeRef.current) > 1 / 120 ||
-        element.seeking
-      )
-        seekVideoWithFrameGate(element, targetTimeRef.current);
-      return;
-    }
-    synchronizerRef.current.correct(
-      element,
-      targetTimeRef.current,
-      performance.now(),
-      (target) =>
-        seekVideoWithFrameGate(element, target, { retainFrame: true }),
-    );
-  }, []);
+  const syncToReplay = useCallback(
+    (force: boolean) => {
+      const element = videoRef.current;
+      if (!element || element.readyState < HTMLMediaElement.HAVE_METADATA)
+        return;
+      if (force) {
+        synchronizerRef.current.reset();
+        element.playbackRate = 1;
+        if (
+          Math.abs(element.currentTime - targetTimeRef.current) > 1 / 120 ||
+          element.seeking
+        )
+          seekVideoWithFrameGate(element, targetTimeRef.current);
+        return;
+      }
+      synchronizerRef.current.correct(
+        element,
+        targetTimeRef.current,
+        performance.now(),
+        (target) =>
+          seekVideoWithFrameGate(element, target, { retainFrame: true }),
+      );
+    },
+    [targetTimeRef],
+  );
 
   const playFromReplay = useCallback(() => {
     const element = videoRef.current;
@@ -97,23 +127,27 @@ function ReplayVideoTile({
         console.warn(`Unable to play 3D Replay video ${video.filename}`);
       }
     });
-  }, [video.filename]);
+  }, [targetTimeRef, video.filename]);
 
   // Explicit seeks use replayRevision below. During playback the MP4 runs on its
   // own media clock. Small drift converges through playbackRate; only a large
   // offset needs a seek, and never while its decoder is still seeking.
-  useEffect(() => {
-    const wasPlaying = previousPlayingRef.current;
-    previousPlayingRef.current = playing;
-    // Play/pause and late clock samples are never seek commands. In
-    // particular a final frame update can commit AFTER the pause render.
-    // Only explicit seek revisions may move a paused video's decoder.
-    if (!active || !playing || !wasPlaying) return;
-    syncToReplay(false);
-    // Seeking away from the native `ended` position does not resume an MP4
-    // automatically. Restart it when the 3D frame counter loops to frame 0.
-    playFromReplay();
-  }, [active, playFromReplay, playing, syncToReplay, targetTime]);
+  useEffect(
+    () =>
+      episodeClock.subscribe(() => {
+        const wasPlaying = previousPlayingRef.current;
+        previousPlayingRef.current = playing;
+        // Play/pause and late clock samples are never seek commands. In
+        // particular a final frame update can commit AFTER the pause render.
+        // Only explicit seek revisions may move a paused video's decoder.
+        if (!active || !playing || !wasPlaying) return;
+        syncToReplay(false);
+        // Seeking away from the native `ended` position does not resume an MP4
+        // automatically. Restart it when the 3D frame counter loops to frame 0.
+        playFromReplay();
+      }),
+    [active, episodeClock, playFromReplay, playing, syncToReplay],
+  );
 
   useEffect(() => {
     const element = videoRef.current;
@@ -169,7 +203,7 @@ function ReplayVideoTile({
         onLoadedMetadata={handleLoadedMetadata}
         onVideoElement={attachVideo}
         video={video}
-        targetSeconds={targetTime}
+        targetSeconds={targetTimeRef}
         compact={compact}
       />
       <figcaption className="absolute left-1 top-1 max-w-[calc(100%-0.5rem)] truncate rounded bg-slate-950/75 px-1.5 py-0.5 text-[9px] font-medium leading-none text-slate-100 shadow backdrop-blur-sm">
@@ -183,7 +217,7 @@ function SideVideoGroup({
   active,
   datasetKey,
   episodeId,
-  episodeTimeSeconds,
+  episodeClock,
   playing,
   replayRevision,
   videos,
@@ -191,7 +225,7 @@ function SideVideoGroup({
   active: boolean;
   datasetKey: string;
   episodeId: number;
-  episodeTimeSeconds: number;
+  episodeClock: ReplayVideoClock;
   playing: boolean;
   replayRevision: number;
   videos: VideoInfo[];
@@ -207,7 +241,7 @@ function SideVideoGroup({
         active={active}
         datasetKey={datasetKey}
         episodeId={episodeId}
-        episodeTimeSeconds={episodeTimeSeconds}
+        episodeClock={episodeClock}
         playing={playing}
         replayRevision={replayRevision}
         video={primary}
@@ -221,7 +255,7 @@ function SideVideoGroup({
               datasetKey={datasetKey}
               episodeId={episodeId}
               compact
-              episodeTimeSeconds={episodeTimeSeconds}
+              episodeClock={episodeClock}
               playing={playing}
               replayRevision={replayRevision}
               video={video}
@@ -455,22 +489,16 @@ function ResizableVideoGroup({
   );
 }
 
-export default function UrdfVideoOverlay({
+const VideoOverlaySurface = memo(function VideoOverlaySurface({
   active,
   datasetKey,
   episodeId,
-  episodeTimeSeconds,
+  episodeClock,
   playing,
   replayRevision,
   videos,
-}: {
-  active: boolean;
-  datasetKey: string;
-  episodeId: number;
-  episodeTimeSeconds: number;
-  playing: boolean;
-  replayRevision: number;
-  videos: VideoInfo[];
+}: Omit<UrdfVideoOverlayProps, "episodeTimeSeconds"> & {
+  episodeClock: ReplayVideoClock;
 }) {
   const t = useT();
   const [frontLayer, setFrontLayer] = useState<VideoLayerId>("center");
@@ -485,7 +513,7 @@ export default function UrdfVideoOverlay({
     active,
     datasetKey,
     episodeId,
-    episodeTimeSeconds,
+    episodeClock,
     playing,
     replayRevision,
   };
@@ -556,5 +584,53 @@ export default function UrdfVideoOverlay({
         </ResizableVideoGroup>
       )}
     </div>
+  );
+});
+
+export default function UrdfVideoOverlay({
+  episodeTimeSeconds,
+  ...props
+}: UrdfVideoOverlayProps) {
+  const compatibility = useVideoCompatibility(
+    props.videos,
+    `${props.datasetKey}:${props.episodeId}`,
+    props.active,
+  );
+  const time = useRef(episodeTimeSeconds);
+  time.current = episodeTimeSeconds;
+  const listeners = useRef(new Set<() => void>());
+  const episodeClock = useMemo<ReplayVideoClock>(
+    () => ({
+      time,
+      subscribe(callback) {
+        listeners.current.add(callback);
+        return () => {
+          listeners.current.delete(callback);
+        };
+      },
+    }),
+    [],
+  );
+
+  // Keep the native media clocks synchronized without rebuilding the video
+  // groups, resize controls and captions for every sampled 3D row.
+  useEffect(() => {
+    listeners.current.forEach((callback) => callback());
+  }, [episodeTimeSeconds, props.active, props.playing]);
+
+  return (
+    <>
+      <VideoOverlaySurface
+        {...props}
+        videos={compatibility.videos}
+        episodeClock={episodeClock}
+      />
+      {props.active && (
+        <VideoCompatibilityControl
+          state={compatibility}
+          className="pointer-events-auto absolute bottom-14 right-3 z-20"
+        />
+      )}
+    </>
   );
 }

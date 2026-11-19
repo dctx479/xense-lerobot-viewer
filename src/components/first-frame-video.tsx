@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { useT } from "@/context/locale-context";
 import type { VideoInfo } from "@/types";
 import {
@@ -8,12 +15,14 @@ import {
   type VideoFrameState,
 } from "@/utils/videoFramePresentation";
 import { FaRedo } from "react-icons/fa";
+import { videoPlaybackUrl } from "@/utils/videoPlaybackUrl";
 
 const INITIAL_STATE: VideoFrameState = {
   phase: "loading",
+  stage: "fetching",
 };
 
-export function FirstFrameVideo({
+export const FirstFrameVideo = memo(function FirstFrameVideo({
   frameKey,
   onLoadedMetadata,
   onVideoElement,
@@ -21,14 +30,18 @@ export function FirstFrameVideo({
   targetSeconds,
   suspended = false,
   compact = false,
+  expanded = false,
 }: {
   frameKey: string;
   onLoadedMetadata?: () => void;
   onVideoElement?: (video: HTMLVideoElement | null) => void;
   video: VideoInfo;
-  targetSeconds: number;
+  /** A stable clock ref avoids rendering this surface for playback samples. */
+  targetSeconds: number | RefObject<number>;
   suspended?: boolean;
   compact?: boolean;
+  /** Fill the bounded enlarged viewer instead of deriving height from width. */
+  expanded?: boolean;
 }) {
   const t = useT();
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -58,9 +71,11 @@ export function FirstFrameVideo({
 
   useLayoutEffect(() => {
     presentationRef.current?.update(
-      video.url,
+      videoPlaybackUrl(video.url),
       frameKey,
-      targetRef.current,
+      typeof targetRef.current === "number"
+        ? targetRef.current
+        : targetRef.current.current,
       suspended,
     );
     // Playback samples are observations, not seek commands. Decoder commands
@@ -70,10 +85,11 @@ export function FirstFrameVideo({
   return (
     <div
       className={`relative isolate w-full overflow-hidden bg-slate-800 ${
-        compact ? "aspect-[7/4]" : "aspect-[4/3]"
+        expanded ? "h-full min-h-0" : compact ? "aspect-[7/4]" : "aspect-[4/3]"
       }`}
       aria-busy={state.phase === "loading"}
       data-video-frame-state={state.phase}
+      data-video-loading-stage={state.stage}
     >
       <video
         ref={setVideoRef}
@@ -105,11 +121,17 @@ export function FirstFrameVideo({
           ) : (
             <div className="flex flex-col items-center gap-2 text-[11px] text-slate-300">
               <span className="size-5 animate-spin rounded-full border-2 border-slate-500 border-t-cyan-300" />
-              <span>{t("player.decodingVideoFrame")}</span>
+              <span>
+                {t(
+                  state.stage === "fetching"
+                    ? "player.loadingVideoFrame"
+                    : "player.decodingVideoFrame",
+                )}
+              </span>
             </div>
           )}
         </div>
       )}
     </div>
   );
-}
+});

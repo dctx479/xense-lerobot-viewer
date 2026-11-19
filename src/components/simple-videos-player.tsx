@@ -19,6 +19,8 @@ import {
 import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { useT } from "@/context/locale-context";
 import { normalizeHiddenVideoNames } from "@/utils/videoVisibility";
+import { useVideoCompatibility } from "@/hooks/use-video-compatibility";
+import { VideoCompatibilityControl } from "./video-compatibility-control";
 
 const THRESHOLDS = {
   VIDEO_SYNC_TOLERANCE: 0.2,
@@ -53,7 +55,7 @@ function invalidatePlayAttempt(attempt: { current: number }): void {
 
 export const SimpleVideosPlayer = ({
   datasetKey,
-  videosInfo,
+  videosInfo: originalVideosInfo,
   episodeId,
   loading = false,
   onVideosReady,
@@ -61,9 +63,24 @@ export const SimpleVideosPlayer = ({
 }: VideoPlayerProps) => {
   const t = useT();
   const visible = useDocumentVisible();
+  const compatibility = useVideoCompatibility(
+    originalVideosInfo,
+    `${datasetKey}:${episodeId}`,
+    visible && !loading,
+  );
+  const videosInfo = compatibility.videos;
   const { seek, setIsPlaying, playingIntentRef } = useTimeControls();
   const { currentTime, externalSeekVersion, isPlaying } = useTimeState();
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
+  // Keep display props stable while the primary camera reports its clock.
+  // Source/episode transitions still read the latest per-camera media time.
+  const videoTargetRefs = useRef<{ current: number }[]>([]);
+  videosInfo.forEach((info, index) => {
+    const target = mediaTimeFromEpisodeTime(info, currentTime);
+    if (videoTargetRefs.current[index])
+      videoTargetRefs.current[index].current = target;
+    else videoTargetRefs.current[index] = { current: target };
+  });
   // One coalescing seeker per element (see utils/coalescedSeek): external
   // seeks never interrupt a seek that is still decoding.
   const seekersRef = useRef<Map<HTMLVideoElement, CoalescedSeeker>>(new Map());
@@ -95,10 +112,50 @@ export const SimpleVideosPlayer = ({
   }
   const [hiddenVideos, setHiddenVideos] = React.useState<string[]>([]);
   const [enlargedVideo, setEnlargedVideo] = React.useState<string | null>(null);
+  const enlargedPanelRef = useRef<HTMLDivElement | null>(null);
+  const enlargedControlRef = useRef<HTMLButtonElement | null>(null);
   const [showHiddenMenu, setShowHiddenMenu] = React.useState(false);
   const [videosReady, setVideosReady] = React.useState(false);
   const wasPlayingWhenHiddenRef = useRef(false);
   const playAttemptRef = useRef(0);
+
+  useEffect(() => {
+    if (!enlargedVideo) return;
+    const previousOverflow = document.body.style.overflow;
+    const previousFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    document.body.style.overflow = "hidden";
+    enlargedControlRef.current?.focus({ preventScroll: true });
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setEnlargedVideo(null);
+      } else if (event.key === "Tab") {
+        const buttons =
+          enlargedPanelRef.current?.querySelectorAll<HTMLButtonElement>(
+            "button:not(:disabled)",
+          );
+        const first = buttons?.[0];
+        const last = buttons?.[buttons.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      if (previousFocus?.isConnected)
+        previousFocus.focus({ preventScroll: true });
+    };
+  }, [enlargedVideo]);
 
   const videoNames = React.useMemo(
     () => videosInfo.map((video) => video.filename),
@@ -562,6 +619,10 @@ export const SimpleVideosPlayer = ({
   // The page shell becomes interactive as soon as the episode data commits.
   return (
     <>
+      <VideoCompatibilityControl
+        state={compatibility}
+        className="mb-3 justify-end"
+      />
       {/* Hidden videos menu */}
       {hiddenVideos.length > 0 && (
         <div className="relative mb-4">
@@ -605,26 +666,45 @@ export const SimpleVideosPlayer = ({
           return (
             <div
               key={info.filename}
+              ref={isEnlarged ? enlargedPanelRef : undefined}
+              role={isEnlarged ? "dialog" : undefined}
+              aria-modal={isEnlarged ? true : undefined}
+              aria-label={isEnlarged ? info.filename : undefined}
               className={`${
                 isEnlarged
-                  ? "z-40 fixed inset-0 bg-black bg-opacity-90 flex flex-col items-center justify-center"
+                  ? "z-[60] fixed inset-0 flex flex-col bg-black/95 p-4"
                   : "max-w-96"
               }`}
             >
-              <p className="truncate w-full rounded-t-md bg-[var(--surface-1)] border border-b-0 border-white/5 px-2.5 py-1 text-[11px] text-slate-400 flex items-center justify-between gap-2">
+              <p className="truncate w-full shrink-0 rounded-t-md bg-[var(--surface-1)] border border-b-0 border-white/5 px-2.5 py-1 text-[11px] text-slate-400 flex items-center justify-between gap-2">
                 <span className="truncate">{info.filename}</span>
                 <span className="flex gap-0.5 shrink-0">
                   <button
+                    ref={isEnlarged ? enlargedControlRef : undefined}
+                    type="button"
+                    aria-label={
+                      isEnlarged ? t("player.minimize") : t("player.enlarge")
+                    }
                     title={
                       isEnlarged ? t("player.minimize") : t("player.enlarge")
                     }
-                    className="p-1 rounded text-slate-500 hover:text-slate-200 hover:bg-white/5 transition-colors"
+                    className={
+                      isEnlarged
+                        ? "inline-flex items-center gap-2 rounded-md border border-white/15 px-3 py-2 text-sm text-slate-100 hover:bg-white/10"
+                        : "p-1 rounded text-slate-500 hover:text-slate-200 hover:bg-white/5 transition-colors"
+                    }
                     onClick={() =>
                       setEnlargedVideo(isEnlarged ? null : info.filename)
                     }
                   >
                     {isEnlarged ? (
-                      <FaCompress size={10} />
+                      <>
+                        <FaCompress size={14} />
+                        {t("player.minimize")}
+                        <kbd className="rounded border border-white/15 px-1 text-xs text-slate-400">
+                          Esc
+                        </kbd>
+                      </>
                     ) : (
                       <FaExpand size={10} />
                     )}
@@ -651,13 +731,16 @@ export const SimpleVideosPlayer = ({
                   </button>
                 </span>
               </p>
-              <div className="relative w-full">
+              <div
+                className={`relative w-full ${isEnlarged ? "min-h-0 flex-1" : ""}`}
+              >
                 <FirstFrameVideo
                   frameKey={`${datasetKey}:${episodeId ?? "episode"}`}
                   onVideoElement={videoRefCallbacksRef.current[idx]}
                   video={info}
-                  targetSeconds={mediaTimeFromEpisodeTime(info, currentTime)}
+                  targetSeconds={videoTargetRefs.current[idx]}
                   suspended={loading}
+                  expanded={isEnlarged}
                 />
               </div>
             </div>
